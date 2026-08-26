@@ -11,6 +11,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Build
+import android.os.SystemClock
 import androidx.core.content.ContextCompat
 import com.yingti.app.AppState
 import kotlinx.coroutines.*
@@ -26,6 +27,7 @@ class BleController(private val context: Context, private val scope: CoroutineSc
     private var gatt: BluetoothGatt? = null
     private var writeCharacteristic: BluetoothGattCharacteristic? = null
     private val writeMutex = Mutex()
+    private var lastWriteAt = 0L
     @Volatile private var shouldRun = true
     @Volatile private var connectionGeneration = 0L
 
@@ -124,9 +126,7 @@ class BleController(private val context: Context, private val scope: CoroutineSc
             device.connectGatt(context, false, callback, BluetoothDevice.TRANSPORT_LE)
         } else device.connectGatt(context, false, callback)
         gatt = newGatt
-        if (generation != connectionGeneration) {
-            runCatching { newGatt.close() }
-        }
+        if (generation != connectionGeneration) runCatching { newGatt.close() }
     }
 
     private fun isCurrent(g: BluetoothGatt): Boolean = gatt === g
@@ -149,9 +149,7 @@ class BleController(private val context: Context, private val scope: CoroutineSc
             }
             if (status == BluetoothGatt.GATT_SUCCESS && newState == BluetoothProfile.STATE_CONNECTED) {
                 AppState.update { it.copy(bleStatus = "发现服务…") }
-                if (!g.discoverServices()) {
-                    handleDisconnect(g, "服务发现启动失败")
-                }
+                if (!g.discoverServices()) handleDisconnect(g, "服务发现启动失败")
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED || status != BluetoothGatt.GATT_SUCCESS) {
                 handleDisconnect(g, "已断开")
             }
@@ -172,7 +170,8 @@ class BleController(private val context: Context, private val scope: CoroutineSc
             }
             characteristic.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
             writeCharacteristic = characteristic
-            runCatching { g.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_BALANCED) }
+            // 稳定优先：保持高连接优先级，牺牲一部分电量换取后台抗断链能力。
+            runCatching { g.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH) }
             AppState.update { it.copy(bleStatus = "已连接", deviceName = runCatching { g.device.name }.getOrNull() ?: it.deviceName, error = null) }
             scope.launch { stopAll() }
         }
@@ -186,7 +185,7 @@ class BleController(private val context: Context, private val scope: CoroutineSc
         writeCharacteristic = null
         runCatching { g.close() }
         AppState.update { it.copy(bleStatus = reason, intensity = 0, suctionIntensity = 0) }
-        if (reconnect && shouldRun) scheduleScan(1_000)
+        if (reconnect && shouldRun) scheduleScan(250)
     }
 
     suspend fun setVibration(intensity: Double): Result<Int> {
@@ -227,10 +226,15 @@ class BleController(private val context: Context, private val scope: CoroutineSc
     @SuppressLint("MissingPermission")
     private suspend fun write(frame: ByteArray): Result<Unit> = writeMutex.withLock {
         withContext(Dispatchers.IO) {
-            runCatching {
+            val now = SystemClock.elapsedRealtime()
+            val waitMs = (WRITE_INTERVAL_MS - (now - lastWriteAt)).coerceAtLeast(0L)
+            if (waitMs > 0) delay(waitMs)
+            val currentGatt = gatt
+            val currentCharacteristic = writeCharacteristic
+            val result = runCatching {
                 if (!hasBlePermissions()) error("缺少蓝牙权限")
-                val g = gatt ?: error("设备未连接")
-                val c = writeCharacteristic ?: error("写特征未就绪")
+                val g = currentGatt ?: error("设备未连接")
+                val c = currentCharacteristic ?: error("写特征未就绪")
                 val accepted = if (Build.VERSION.SDK_INT >= 33) {
                     g.writeCharacteristic(c, frame, BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE) == BluetoothStatusCodes.SUCCESS
                 } else {
@@ -238,9 +242,13 @@ class BleController(private val context: Context, private val scope: CoroutineSc
                     @Suppress("DEPRECATION") g.writeCharacteristic(c)
                 }
                 if (!accepted) error("BLE 写入被拒绝")
-            }.onFailure {
-                if (shouldRun && isConnected) scheduleScan(1_000)
+                lastWriteAt = SystemClock.elapsedRealtime()
             }
+            if (result.isFailure && currentGatt != null && isCurrent(currentGatt)) {
+                // 写失败时立即清空当前连接；否则 scan() 会误判为“仍在线”而不重连。
+                handleDisconnect(currentGatt, "BLE 写入失败，正在重连")
+            }
+            result
         }
     }
 
@@ -282,4 +290,8 @@ class BleController(private val context: Context, private val scope: CoroutineSc
         ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED &&
             ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
     } else ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+
+    private companion object {
+        const val WRITE_INTERVAL_MS = 100L
+    }
 }
