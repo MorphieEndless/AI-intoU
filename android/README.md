@@ -2,6 +2,11 @@
 
 单 APK 直接连接 SVAKOM SX589B，并作为 Signal Bridge Remote 的 phone relay。
 
+## 构建状态
+
+- CI Secrets（KEYSTORE_B64 等）已配置 ✅ → 每次 push 会自动产出**签名一致的 release APK**（artifact `yingti-bridge-release-apk`）。
+- 从 debug 包切换到 release 包需要卸载重装一次；此后覆盖安装不再清空配置，登录持久化（记住密码）让 Token 过期重登也不用再手输。
+
 ## v0.10.1
 
 - 登录持久化：账号模式可勾选「记住密码」，密码以加密形式保存（EncryptedSharedPreferences），下次打开自动填充；Token 过期重登不用再手输。
