@@ -31,6 +31,12 @@ class BleController(private val context: Context, private val scope: CoroutineSc
     @Volatile private var shouldRun = true
     @Volatile private var connectionGeneration = 0L
 
+    // 当前输出状态：用于固件看门狗保活，以及断线重连后自动恢复输出。
+    @Volatile private var currentVibrateLevel = 0
+    @Volatile private var currentSuctionLevel = 0
+    @Volatile private var currentSuctionMode = SvakomProtocol.SUCTION_DEFAULT_MODE
+    private var keepAliveJob: Job? = null
+
     private val bluetoothStateReceiver = object : BroadcastReceiver() {
         override fun onReceive(receiverContext: Context?, intent: Intent?) {
             if (intent?.action != BluetoothAdapter.ACTION_STATE_CHANGED) return
@@ -173,7 +179,15 @@ class BleController(private val context: Context, private val scope: CoroutineSc
             // 稳定优先：保持高连接优先级，牺牲一部分电量换取后台抗断链能力。
             runCatching { g.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH) }
             AppState.update { it.copy(bleStatus = "已连接", deviceName = runCatching { g.device.name }.getOrNull() ?: it.deviceName, error = null) }
-            scope.launch { stopAll() }
+            scope.launch {
+                // 重连后恢复输出；无输出时才做启动即停的清理。
+                if (currentVibrateLevel > 0 || currentSuctionLevel > 0) {
+                    if (currentVibrateLevel > 0) runCatching { write(SvakomProtocol.vibrate(currentVibrateLevel)) }
+                    if (currentSuctionLevel > 0) runCatching { write(SvakomProtocol.suction(currentSuctionLevel, currentSuctionMode)) }
+                } else {
+                    stopAll()
+                }
+            }
         }
     }
 
@@ -191,6 +205,8 @@ class BleController(private val context: Context, private val scope: CoroutineSc
     suspend fun setVibration(intensity: Double): Result<Int> {
         val level = SvakomProtocol.levelFor(intensity)
         return write(SvakomProtocol.vibrate(level)).map {
+            currentVibrateLevel = level
+            updateKeepAlive()
             AppState.update { state -> state.copy(intensity = level, lastMessage = "震动 $level 档") }
             level
         }
@@ -200,6 +216,9 @@ class BleController(private val context: Context, private val scope: CoroutineSc
         val level = SvakomProtocol.suctionLevelFor(intensity)
         val frame = runCatching { SvakomProtocol.suction(level, mode) }.getOrElse { return Result.failure(it) }
         return write(frame).map {
+            currentSuctionLevel = level
+            if (level > 0) currentSuctionMode = mode
+            updateKeepAlive()
             AppState.update { state -> state.copy(suctionIntensity = level, suctionMode = if (level > 0) mode else state.suctionMode, lastMessage = if (level > 0) "吮吸 模式 $mode · $level/5 档" else "吮吸已停止") }
             level
         }
@@ -219,8 +238,29 @@ class BleController(private val context: Context, private val scope: CoroutineSc
             write(frame).onFailure { failure = it }
             delay(35)
         }
+        currentVibrateLevel = 0
+        currentSuctionLevel = 0
+        updateKeepAlive()
         AppState.update { it.copy(intensity = 0, suctionIntensity = 0, lastMessage = "全部停止") }
         return failure?.let { Result.failure(it) } ?: Result.success(Unit)
+    }
+
+    /** 固件看门狗保活：任一通道在输出时，周期重发当前帧，防止设备自动停机。 */
+    private fun updateKeepAlive() {
+        val active = currentVibrateLevel > 0 || currentSuctionLevel > 0
+        if (!active) {
+            keepAliveJob?.cancel()
+            keepAliveJob = null
+            return
+        }
+        if (keepAliveJob?.isActive == true) return
+        keepAliveJob = scope.launch {
+            while (isActive) {
+                delay(KEEP_ALIVE_INTERVAL_MS)
+                if (currentVibrateLevel > 0) runCatching { write(SvakomProtocol.vibrate(currentVibrateLevel)) }
+                if (currentSuctionLevel > 0) runCatching { write(SvakomProtocol.suction(currentSuctionLevel, currentSuctionMode)) }
+            }
+        }
     }
 
     @SuppressLint("MissingPermission")
@@ -257,6 +297,8 @@ class BleController(private val context: Context, private val scope: CoroutineSc
         shouldRun = false
         scanTimeoutJob?.cancel()
         reconnectJob?.cancel()
+        keepAliveJob?.cancel()
+        keepAliveJob = null
         stopScan()
         context.unregisterReceiver(bluetoothStateReceiver)
         val oldGatt = gatt
@@ -293,5 +335,6 @@ class BleController(private val context: Context, private val scope: CoroutineSc
 
     private companion object {
         const val WRITE_INTERVAL_MS = 100L
+        const val KEEP_ALIVE_INTERVAL_MS = 10_000L
     }
 }
