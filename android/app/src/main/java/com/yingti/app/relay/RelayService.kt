@@ -48,6 +48,12 @@ class RelayService : Service() {
                 relay?.sendPhoneEmergencyStop()
                 updateNotification("已紧急停止")
             }
+            ACTION_RESTART -> scope.launch {
+                dispatcher.emergencyStop()
+                relay?.stop()
+                relay = null
+                startBridge()
+            }
             ACTION_SHUTDOWN -> {
                 scope.launch { dispatcher.emergencyStop() }
                 stopSelf()
@@ -125,6 +131,7 @@ class RelayService : Service() {
         const val ACTION_SUCTION = "com.yingti.app.SUCTION"
         const val ACTION_RAW = "com.yingti.app.RAW"
         const val ACTION_STOP_ALL = "com.yingti.app.STOP_ALL"
+        const val ACTION_RESTART = "com.yingti.app.RESTART"
         const val ACTION_SHUTDOWN = "com.yingti.app.SHUTDOWN"
         const val EXTRA_INTENSITY = "intensity"
         const val EXTRA_HEX = "hex"

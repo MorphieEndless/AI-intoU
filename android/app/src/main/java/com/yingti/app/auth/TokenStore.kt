@@ -18,26 +18,59 @@ class TokenStore(context: Context) {
         set(value) = prefs.edit().apply { if (value == null) remove("token") else putString("token", value) }.apply()
 
     var username: String
-        get() = prefs.getString("username", "morphie") ?: "morphie"
+        get() = prefs.getString("username", "") ?: ""
         set(value) = prefs.edit().putString("username", value).apply()
 
     var serverBaseUrl: String
-        get() = prefs.getString("server", DEFAULT_SERVER) ?: DEFAULT_SERVER
-        set(value) = prefs.edit().putString("server", normalizeBaseUrl(value)).apply()
+        get() = prefs.getString("server", "") ?: ""
+        set(value) = prefs.edit().putString("server", value.takeIf { it.isBlank() } ?: normalizeBaseUrl(value)).apply()
+
+    var authMode: AuthMode
+        get() = runCatching { AuthMode.valueOf(prefs.getString("auth_mode", AuthMode.TOKEN.name)!!) }
+            .getOrDefault(AuthMode.TOKEN)
+        set(value) = prefs.edit().putString("auth_mode", value.name).apply()
+
+    var mcpPath: String
+        get() = prefs.getString("mcp_path", ConnectionConfig.DEFAULT_MCP_PATH) ?: ConnectionConfig.DEFAULT_MCP_PATH
+        set(value) = prefs.edit().putString("mcp_path", ConnectionConfig.normalizePath(value, "MCP Path")).apply()
+
+    var relayPath: String
+        get() = prefs.getString("relay_path", ConnectionConfig.DEFAULT_RELAY_PATH) ?: ConnectionConfig.DEFAULT_RELAY_PATH
+        set(value) = prefs.edit().putString("relay_path", ConnectionConfig.normalizePath(value, "Phone Relay Path")).apply()
 
     val websocketUrl: String
-        get() = serverBaseUrl.replaceFirst("https://", "wss://")
-            .replaceFirst("http://", "ws://") + "/ws/phone"
+        get() = currentConfig().websocketUrl
 
-    fun clearSession() { token = null }
+    val isConfigured: Boolean
+        get() = !token.isNullOrBlank() && serverBaseUrl.isNotBlank()
+
+    fun currentConfig(): ConnectionConfig = ConnectionConfig(
+        serverBaseUrl = serverBaseUrl,
+        authMode = authMode,
+        token = token.orEmpty(),
+        username = username,
+        mcpPath = mcpPath,
+        relayPath = relayPath,
+    )
+
+    fun save(result: ConnectionTestResult) {
+        serverBaseUrl = result.config.normalizedBaseUrl
+        authMode = result.config.authMode
+        mcpPath = result.config.mcpPath
+        relayPath = result.config.relayPath
+        username = result.username
+        token = result.token
+    }
+
+    fun clearSession() {
+        token = null
+    }
+
+    fun clearAll() {
+        prefs.edit().clear().apply()
+    }
 
     companion object {
-        const val DEFAULT_SERVER = "https://<YOUR_SERVER_HOST>"
-        fun normalizeBaseUrl(value: String): String = value.trim().trimEnd('/').let {
-            when {
-                it.startsWith("https://") || it.startsWith("http://") -> it
-                else -> "https://$it"
-            }
-        }
+        fun normalizeBaseUrl(value: String): String = ConnectionConfig.normalizeBaseUrl(value)
     }
 }

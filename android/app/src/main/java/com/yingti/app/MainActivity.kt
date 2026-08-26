@@ -1,9 +1,13 @@
 package com.yingti.app
 
 import android.Manifest
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -11,12 +15,14 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.*
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.yingti.app.auth.TokenStore
+import com.yingti.app.auth.ConnectionConfig
 import com.yingti.app.relay.RelayService
+import com.yingti.app.ui.ConnectionSettingsScreen
 import com.yingti.app.ui.DashboardScreen
-import com.yingti.app.ui.LoginScreen
 import com.yingti.app.ui.YingtiTheme
 import kotlinx.coroutines.launch
+
+enum class AppScreen { DASHBOARD, SETTINGS }
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -27,9 +33,11 @@ class MainActivity : ComponentActivity() {
                 val context = LocalContext.current
                 val scope = rememberCoroutineScope()
                 val bridge by AppState.state.collectAsStateWithLifecycle()
-                var loggedIn by remember { mutableStateOf(!app.tokenStore.token.isNullOrBlank()) }
+                var configured by remember { mutableStateOf(app.tokenStore.isConfigured) }
+                var screen by remember { mutableStateOf(if (configured) AppScreen.DASHBOARD else AppScreen.SETTINGS) }
                 var loading by remember { mutableStateOf(false) }
-                var loginError by remember { mutableStateOf<String?>(null) }
+                var connectionStatus by remember { mutableStateOf<String?>(null) }
+                var connectionError by remember { mutableStateOf<String?>(null) }
 
                 val permissionLauncher = rememberLauncherForActivityResult(
                     ActivityResultContracts.RequestMultiplePermissions()
@@ -46,8 +54,8 @@ class MainActivity : ComponentActivity() {
                     permissionLauncher.launch(permissions.toTypedArray())
                 }
 
-                fun requestBatteryOptimizationExemption(context: android.content.Context) {
-                    val pm = context.getSystemService(android.content.Context.POWER_SERVICE) as android.os.PowerManager
+                fun requestBatteryOptimizationExemption(context: Context) {
+                    val pm = context.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
                     if (!pm.isIgnoringBatteryOptimizations(context.packageName)) {
                         runCatching {
                             context.startActivity(
@@ -60,36 +68,59 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                LaunchedEffect(loggedIn) {
-                    if (loggedIn) {
+                fun copyToClipboard(label: String, value: String) {
+                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    clipboard.setPrimaryClip(ClipData.newPlainText(label, value))
+                    Toast.makeText(context, "$label 已复制", Toast.LENGTH_SHORT).show()
+                }
+
+                fun runConnectionTest(config: ConnectionConfig, password: String, save: Boolean) {
+                    loading = true
+                    connectionStatus = null
+                    connectionError = null
+                    scope.launch {
+                        app.apiClient.testConnection(config, password)
+                            .onSuccess { result ->
+                                connectionStatus = result.message
+                                if (save) {
+                                    val wasConfigured = configured
+                                    app.tokenStore.save(result)
+                                    configured = true
+                                    screen = AppScreen.DASHBOARD
+                                    if (wasConfigured && bridge.serviceRunning) {
+                                        RelayService.send(context, RelayService.ACTION_RESTART)
+                                    }
+                                }
+                            }
+                            .onFailure { connectionError = it.message ?: "连接测试失败" }
+                        loading = false
+                    }
+                }
+
+                LaunchedEffect(configured) {
+                    if (configured) {
                         requestPermissionsAndStart()
                         requestBatteryOptimizationExemption(context)
                     }
                 }
 
-                if (!loggedIn) {
-                    LoginScreen(
-                        initialUsername = app.tokenStore.username,
-                        initialServer = app.tokenStore.serverBaseUrl,
+                when (screen) {
+                    AppScreen.SETTINGS -> ConnectionSettingsScreen(
+                        initialConfig = app.tokenStore.currentConfig(),
                         loading = loading,
-                        error = loginError,
-                    ) { username, password, server ->
-                        loading = true
-                        loginError = null
-                        scope.launch {
-                            app.apiClient.login(server, username, password)
-                                .onSuccess {
-                                    app.tokenStore.serverBaseUrl = TokenStore.normalizeBaseUrl(server)
-                                    app.tokenStore.username = it.username
-                                    app.tokenStore.token = it.token
-                                    loggedIn = true
-                                }
-                                .onFailure { loginError = it.message ?: "登录失败" }
-                            loading = false
-                        }
-                    }
-                } else {
-                    DashboardScreen(
+                        status = connectionStatus,
+                        error = connectionError,
+                        canCancel = configured,
+                        onCancel = {
+                            connectionStatus = null
+                            connectionError = null
+                            screen = AppScreen.DASHBOARD
+                        },
+                        onTest = { config, password -> runConnectionTest(config, password, false) },
+                        onSave = { config, password -> runConnectionTest(config, password, true) },
+                        onCopy = ::copyToClipboard,
+                    )
+                    AppScreen.DASHBOARD -> DashboardScreen(
                         state = bridge,
                         server = app.tokenStore.serverBaseUrl,
                         onScan = { RelayService.send(context, RelayService.ACTION_SCAN) },
@@ -97,10 +128,18 @@ class MainActivity : ComponentActivity() {
                         onStop = { RelayService.send(context, RelayService.ACTION_STOP_ALL) },
                         onRawFrame = { RelayService.sendRaw(context, it) },
                         onSuction = { RelayService.send(context, RelayService.ACTION_SUCTION, it) },
+                        onSettings = {
+                            connectionStatus = null
+                            connectionError = null
+                            screen = AppScreen.SETTINGS
+                        },
                         onLogout = {
                             RelayService.send(context, RelayService.ACTION_SHUTDOWN)
                             app.tokenStore.clearSession()
-                            loggedIn = false
+                            configured = false
+                            connectionStatus = null
+                            connectionError = null
+                            screen = AppScreen.SETTINGS
                         },
                     )
                 }

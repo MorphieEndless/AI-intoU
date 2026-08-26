@@ -8,6 +8,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Bluetooth
 import androidx.compose.material.icons.outlined.Cloud
 import androidx.compose.material.icons.outlined.Logout
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -24,6 +25,7 @@ fun DashboardScreen(
     onScan: () -> Unit,
     onVibrate: (Double) -> Unit,
     onStop: () -> Unit,
+    onSettings: () -> Unit,
     onLogout: () -> Unit,
     onRawFrame: (String) -> Unit = {},
     onSuction: (Double) -> Unit = {},
@@ -37,7 +39,8 @@ fun DashboardScreen(
                     Text("樱媞 Bridge", style = MaterialTheme.typography.headlineSmall)
                     Text(server.removePrefix("https://"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
                 }
-                IconButton(onClick = onLogout) { Icon(Icons.Outlined.Logout, "退出") }
+                IconButton(onClick = onSettings) { Icon(Icons.Outlined.Settings, "连接设置") }
+                IconButton(onClick = onLogout) { Icon(Icons.Outlined.Logout, "清除凭证并退出") }
             }
         }
     ) { padding ->
