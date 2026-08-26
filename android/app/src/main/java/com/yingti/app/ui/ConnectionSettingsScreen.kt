@@ -13,6 +13,7 @@ import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -24,20 +25,22 @@ import com.yingti.app.auth.ConnectionConfig
 @Composable
 fun ConnectionSettingsScreen(
     initialConfig: ConnectionConfig,
+    initialPassword: String = "",
     loading: Boolean,
     status: String?,
     error: String?,
     canCancel: Boolean,
     onCancel: () -> Unit,
     onTest: (ConnectionConfig, String) -> Unit,
-    onSave: (ConnectionConfig, String) -> Unit,
+    onSave: (ConnectionConfig, String, Boolean) -> Unit,
     onCopy: (String, String) -> Unit,
 ) {
     var server by remember(initialConfig.serverBaseUrl) { mutableStateOf(initialConfig.serverBaseUrl) }
     var authMode by remember(initialConfig.authMode) { mutableStateOf(initialConfig.authMode) }
     var token by remember(initialConfig.token) { mutableStateOf(initialConfig.token) }
     var username by remember(initialConfig.username) { mutableStateOf(initialConfig.username) }
-    var password by remember { mutableStateOf("") }
+    var password by remember(initialPassword) { mutableStateOf(initialPassword) }
+    var rememberPassword by remember { mutableStateOf(initialPassword.isNotEmpty()) }
     var mcpPath by remember(initialConfig.mcpPath) { mutableStateOf(initialConfig.mcpPath) }
     var relayPath by remember(initialConfig.relayPath) { mutableStateOf(initialConfig.relayPath) }
     var advanced by remember { mutableStateOf(false) }
@@ -152,7 +155,11 @@ fun ConnectionSettingsScreen(
                         visible = showSecret,
                         onToggleVisibility = { showSecret = !showSecret },
                     )
-                    Text("密码只用于本次调用 /auth/login，不会保存；服务器签发的 JWT 会加密保存。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(checked = rememberPassword, onCheckedChange = { rememberPassword = it })
+                        Text("记住密码（加密存储，下次自动填充）", style = MaterialTheme.typography.bodySmall)
+                    }
+                    Text("密码仅用于本次调用 /auth/login 换取 JWT；勾选后加密保存在本机。服务器签发的 JWT 也会加密保存。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
                 }
             }
 
@@ -194,7 +201,7 @@ fun ConnectionSettingsScreen(
                     enabled = !loading && formReady,
                 ) { Text("测试连接") }
                 Button(
-                    onClick = { onSave(draft, password) },
+                    onClick = { onSave(draft, password, rememberPassword) },
                     modifier = Modifier.weight(1f).height(52.dp),
                     enabled = !loading && formReady,
                 ) {

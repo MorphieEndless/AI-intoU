@@ -74,7 +74,7 @@ class MainActivity : ComponentActivity() {
                     Toast.makeText(context, "$label 已复制", Toast.LENGTH_SHORT).show()
                 }
 
-                fun runConnectionTest(config: ConnectionConfig, password: String, save: Boolean) {
+                fun runConnectionTest(config: ConnectionConfig, password: String, save: Boolean, rememberPassword: Boolean = false) {
                     loading = true
                     connectionStatus = null
                     connectionError = null
@@ -85,6 +85,7 @@ class MainActivity : ComponentActivity() {
                                 if (save) {
                                     val wasConfigured = configured
                                     app.tokenStore.save(result)
+                                    app.tokenStore.savedPassword = if (rememberPassword) password else ""
                                     configured = true
                                     screen = AppScreen.DASHBOARD
                                     if (wasConfigured && bridge.serviceRunning) {
@@ -107,6 +108,7 @@ class MainActivity : ComponentActivity() {
                 when (screen) {
                     AppScreen.SETTINGS -> ConnectionSettingsScreen(
                         initialConfig = app.tokenStore.currentConfig(),
+                        initialPassword = app.tokenStore.savedPassword,
                         loading = loading,
                         status = connectionStatus,
                         error = connectionError,
@@ -117,7 +119,7 @@ class MainActivity : ComponentActivity() {
                             screen = AppScreen.DASHBOARD
                         },
                         onTest = { config, password -> runConnectionTest(config, password, false) },
-                        onSave = { config, password -> runConnectionTest(config, password, true) },
+                        onSave = { config, password, rememberPassword -> runConnectionTest(config, password, true, rememberPassword) },
                         onCopy = ::copyToClipboard,
                     )
                     AppScreen.DASHBOARD -> DashboardScreen(

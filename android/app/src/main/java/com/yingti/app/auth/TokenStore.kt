@@ -38,6 +38,11 @@ class TokenStore(context: Context) {
         get() = prefs.getString("relay_path", ConnectionConfig.DEFAULT_RELAY_PATH) ?: ConnectionConfig.DEFAULT_RELAY_PATH
         set(value) = prefs.edit().putString("relay_path", ConnectionConfig.normalizePath(value, "Phone Relay Path")).apply()
 
+    /** 记住密码（可选）：仅账号模式使用，加密存储；赋空值即清除。 */
+    var savedPassword: String
+        get() = prefs.getString("saved_password", "") ?: ""
+        set(value) = prefs.edit().apply { if (value.isBlank()) remove("saved_password") else putString("saved_password", value) }.apply()
+
     val websocketUrl: String
         get() = currentConfig().websocketUrl
 

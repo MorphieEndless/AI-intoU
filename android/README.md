@@ -2,6 +2,11 @@
 
 单 APK 直接连接 SVAKOM SX589B，并作为 Signal Bridge Remote 的 phone relay。
 
+## v0.10.1
+
+- 登录持久化：账号模式可勾选「记住密码」，密码以加密形式保存（EncryptedSharedPreferences），下次打开自动填充；Token 过期重登不用再手输。
+- 稳定 release 签名：仓库配置 `KEYSTORE_B64` / `KEYSTORE_PASSWORD` / `KEY_ALIAS` / `KEY_PASSWORD` 四个 Secrets 后，Actions 会产出签名一致的 release APK——覆盖安装不再清空本地配置，不用每次重填账号密码。
+
 ## v0.10.0
 
 - SX589B 吮吸协议按真机结论修正：byte5 仅 1–5 档有效，06 死档。
@@ -20,7 +25,7 @@
 - 支持 HTTPS/WSS 与 HTTP/WS；明文 HTTP 会持续显示风险提示。
 - 保存前测试 `/health` 与 WebSocket `phone_auth`。
 - 生成 RikkaHub Streamable HTTP 配置，可分别复制 MCP URL、Authorization 或完整 JSON。
-- Token/JWT 使用 `EncryptedSharedPreferences` 保存，账号密码不落盘，日志不输出凭证。
+- Token/JWT 使用 `EncryptedSharedPreferences` 保存；密码仅在勾选「记住密码」时加密保存，日志不输出凭证。
 
 ## 设备与安全能力
 
@@ -52,4 +57,4 @@ SB_REQUIRE_MCP_AUTH=true
 SB_REGISTRATION_OPEN=false
 ```
 
-App 与 RikkaHub 使用同一个 Bearer Token。公网部署应优先使用 HTTPS/WSS；HTTP/WS 只建议用于可信局域网或 VPN。
+App 与 RikkaHub 使用同一个 Bearer Token。公网部署应优先使用 HTTPS/WSS；HTTP/WS 只建议用于可信局域网或 VPN 内。
