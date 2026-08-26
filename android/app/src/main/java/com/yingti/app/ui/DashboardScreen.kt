@@ -7,6 +7,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.outlined.Bluetooth
 import androidx.compose.material.icons.outlined.Cloud
 import androidx.compose.material.icons.outlined.Logout
@@ -16,6 +17,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yingti.app.BridgeState
 import kotlin.math.roundToInt
@@ -24,10 +27,10 @@ private enum class SuctionPanel { TOY, FREE }
 private data class ToyPreset(val label: String, val mode: Int, val level: Int, val detail: String)
 
 private val toyPresets = listOf(
-    ToyPreset("1", 5, 1, "持续 · 弱"),
-    ToyPreset("2", 5, 2, "持续 · 中"),
-    ToyPreset("3", 5, 3, "持续 · 强"),
-    // 4/5/6 的 mode 顺序等待真机校准；强度 3 是当前可调的保守基线。
+    ToyPreset("1", 5, 1, "持续·弱"),
+    ToyPreset("2", 5, 2, "持续·中"),
+    ToyPreset("3", 5, 3, "持续·强"),
+    // 4/5/6 → byte4 06/07/08，v0.10.0 真机初步确认可用。
     ToyPreset("4", 6, 3, "节奏 06"),
     ToyPreset("5", 7, 3, "节奏 07"),
     ToyPreset("6", 8, 3, "节奏 08"),
@@ -36,7 +39,7 @@ private val toyPresets = listOf(
 private val suctionModes = listOf(
     1 to "脉冲",
     2 to "抖动 A",
-    3 to "抖动 B",
+    3 to "抖动 B≈A",
     4 to "另类脉冲",
     5 to "持续",
     6 to "节奏 A",
@@ -75,6 +78,13 @@ fun DashboardScreen(
                 }
                 IconButton(onClick = onSettings) { Icon(Icons.Outlined.Settings, "连接设置") }
                 IconButton(onClick = onLogout) { Icon(Icons.Outlined.Logout, "清除凭证并退出") }
+                IconButton(onClick = onStop) {
+                    Icon(
+                        Icons.Filled.Stop,
+                        "STOP ALL",
+                        tint = Color(0xFFB3261E),
+                    )
+                }
             }
         }
     ) { padding ->
@@ -139,14 +149,8 @@ fun DashboardScreen(
 
             ProtocolDebugCard(lastMessage = state.lastMessage, onSendRaw = onRawFrame)
 
-            Button(
-                onClick = { slider = 0f; onStop() },
-                modifier = Modifier.fillMaxWidth().height(68.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB3261E)),
-                shape = RoundedCornerShape(20.dp),
-            ) { Text("STOP ALL", style = MaterialTheme.typography.titleLarge) }
             Text(
-                "断网、Relay 断开或服务退出时会自动发送停止帧。",
+                "断网、Relay 断开或服务退出时会自动发送停止帧。顶栏红色停止按钮 = 双通道 STOP ALL。",
                 modifier = Modifier.fillMaxWidth().padding(bottom = 18.dp),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.secondary,
@@ -205,8 +209,20 @@ private fun SuctionCard(
                                 } else ButtonDefaults.elevatedButtonColors(),
                             ) {
                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Text(preset.label, style = MaterialTheme.typography.titleLarge)
-                                    Text(preset.detail, style = MaterialTheme.typography.labelSmall)
+                                    Text(
+                                        preset.label,
+                                        style = MaterialTheme.typography.titleLarge,
+                                        maxLines = 1,
+                                    )
+                                    Text(
+                                        preset.detail,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        textAlign = TextAlign.Center,
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.fillMaxWidth(),
+                                    )
                                 }
                             }
                         }
@@ -276,6 +292,10 @@ private val quickFrames = listOf(
         "脉冲5 55 09 00 00 01 05 00",
         "节奏3 55 09 00 00 06 03 00",
         "停止 55 09 00 00 00 00 00",
+    ),
+    "校准·02/03 抖动" to listOf(
+        "抖动02 55 09 00 00 02 03 00",
+        "抖动03 55 09 00 00 03 03 00",
     ),
 )
 
