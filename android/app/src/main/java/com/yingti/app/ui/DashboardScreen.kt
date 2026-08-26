@@ -30,21 +30,22 @@ private val toyPresets = listOf(
     ToyPreset("1", 5, 1, "持续·弱"),
     ToyPreset("2", 5, 2, "持续·中"),
     ToyPreset("3", 5, 3, "持续·强"),
-    // 4/5/6 → byte4 06/07/08，v0.10.0 真机初步确认可用。
+    // 4/5/6 → byte4 06/07/08，v0.10.0 真机初步确认可用，顺序校准待定。
     ToyPreset("4", 6, 3, "节奏 06"),
     ToyPreset("5", 7, 3, "节奏 07"),
     ToyPreset("6", 8, 3, "节奏 08"),
 )
 
+// 真机定论（2026-08-27）：02/03 抖动、08/01 脉冲均确认为同一模式。
 private val suctionModes = listOf(
     1 to "脉冲",
     2 to "抖动 A",
-    3 to "抖动 B≈A",
+    3 to "抖动 B=同02",
     4 to "另类脉冲",
     5 to "持续",
     6 to "节奏 A",
     7 to "节奏 B",
-    8 to "脉冲 ≈01",
+    8 to "脉冲=同01",
 )
 
 @Composable
