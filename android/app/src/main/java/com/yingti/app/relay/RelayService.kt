@@ -38,7 +38,12 @@ class RelayService : Service() {
             ACTION_START -> startBridge()
             ACTION_SCAN -> ble.scan()
             ACTION_VIBRATE -> scope.launch { ble.setVibration(intent?.getDoubleExtra(EXTRA_INTENSITY, 0.0) ?: 0.0) }
-            ACTION_SUCTION -> scope.launch { ble.setSuction(intent?.getDoubleExtra(EXTRA_INTENSITY, 0.0) ?: 0.0) }
+            ACTION_SUCTION -> scope.launch {
+                ble.setSuction(
+                    intent?.getDoubleExtra(EXTRA_INTENSITY, 0.0) ?: 0.0,
+                    intent?.getIntExtra(EXTRA_MODE, 5) ?: 5,
+                )
+            }
             ACTION_RAW -> scope.launch {
                 val hex = intent?.getStringExtra(EXTRA_HEX)
                 if (!hex.isNullOrBlank()) ble.writeRaw(hex)
@@ -134,13 +139,15 @@ class RelayService : Service() {
         const val ACTION_RESTART = "com.yingti.app.RESTART"
         const val ACTION_SHUTDOWN = "com.yingti.app.SHUTDOWN"
         const val EXTRA_INTENSITY = "intensity"
+        const val EXTRA_MODE = "mode"
         const val EXTRA_HEX = "hex"
         private const val CHANNEL_ID = "yingti_relay"
         private const val NOTIFICATION_ID = 589
 
-        fun send(context: Context, action: String, intensity: Double? = null) {
+        fun send(context: Context, action: String, intensity: Double? = null, mode: Int? = null) {
             val intent = Intent(context, RelayService::class.java).setAction(action)
             intensity?.let { intent.putExtra(EXTRA_INTENSITY, it) }
+            mode?.let { intent.putExtra(EXTRA_MODE, it) }
             ContextCompat.startForegroundService(context, intent)
         }
 

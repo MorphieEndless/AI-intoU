@@ -127,7 +127,9 @@ class MainActivity : ComponentActivity() {
                         onVibrate = { RelayService.send(context, RelayService.ACTION_VIBRATE, it) },
                         onStop = { RelayService.send(context, RelayService.ACTION_STOP_ALL) },
                         onRawFrame = { RelayService.sendRaw(context, it) },
-                        onSuction = { RelayService.send(context, RelayService.ACTION_SUCTION, it) },
+                        onSuction = { intensity, mode ->
+                            RelayService.send(context, RelayService.ACTION_SUCTION, intensity, mode)
+                        },
                         onSettings = {
                             connectionStatus = null
                             connectionError = null

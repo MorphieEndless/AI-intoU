@@ -10,6 +10,7 @@ data class BridgeState(
     val deviceName: String? = null,
     val intensity: Int = 0,
     val suctionIntensity: Int = 0,
+    val suctionMode: Int = 5,
     val lastMessage: String = "等待启动",
     val error: String? = null,
 )

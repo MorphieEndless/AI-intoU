@@ -2,6 +2,15 @@
 
 单 APK 直接连接 SVAKOM SX589B，并作为 Signal Bridge Remote 的 phone relay。
 
+## v0.10.0
+
+- SX589B 吮吸协议按真机结论修正：byte5 仅 1–5 档有效，06 死档。
+- `constrict` 支持 mode 1–8 透传 byte4，缺省 5（持续）。
+- 吮吸区重构为「玩具档 / 自由模式」：6 个预设，以及完整模式表 + 1–5 档强度。
+- 支持 `custom_pattern` 固定 steps；每步可携带 `constrict_mode`，缺省 5。
+- 自定义波形在手机端二次校验：每步至少 100ms、最多 128 步、repeat 最多 20、总时长最多 10 分钟。
+- 玩具档 4/5/6 当前暂按 byte4 06/07/08 排列，等待真机精确校准。
+
 ## v0.9.0
 
 - 单服务器自部署连接设置，不再绑定私人服务器。
@@ -15,9 +24,9 @@
 ## 设备与安全能力
 
 - 原生 Android BLE 扫描 SX/SL 系列设备，连接 FFE0/FFE1。
-- SX589B 震动 0–10 档、吮吸 0–6 档与启动即停。
+- SX589B 震动 0–10 档、吮吸 0–5 档 / 模式 1–8，与启动即停。
 - WebSocket `phone_auth`、心跳响应、命令 ACK、`device_list`。
-- direct vibrate/constrict、双通道 pulse/wave/escalate、stop、scan。
+- direct vibrate/constrict、双通道 pulse/wave/escalate、custom steps、stop、scan。
 - Relay 断线本地 emergency stop。
 - 前台服务、WakeLock、通知栏 STOP ALL。
 

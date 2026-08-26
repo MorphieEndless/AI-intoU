@@ -53,7 +53,7 @@ class RelayClient(
                     JSONObject().put("type", "heartbeat_pong")
                         .put("timestamp", msg.optDouble("timestamp", System.currentTimeMillis() / 1000.0)).toString()
                 )
-                "command", "pattern", "stop", "read_sensor", "scan" -> scope.launch {
+                "command", "pattern", "custom_pattern", "stop", "read_sensor", "scan" -> scope.launch {
                     val ack = dispatcher.dispatch(msg)
                     webSocket.send(ack.toString())
                     if (msg.optString("type") == "scan") {

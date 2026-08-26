@@ -118,11 +118,22 @@ class BleController(private val context: Context, private val scope: CoroutineSc
         }
     }
 
-    /** 吮吸通道（opcode 0x09，真机已验证存在，强度仅 6 档）。 */
-    suspend fun setSuction(intensity: Double): Result<Int> {
+    /** 吮吸通道：强度 1-5 档，模式 byte4 透传 1-8，默认 05 持续。 */
+    suspend fun setSuction(
+        intensity: Double,
+        mode: Int = SvakomProtocol.SUCTION_DEFAULT_MODE,
+    ): Result<Int> {
         val level = SvakomProtocol.suctionLevelFor(intensity)
-        return write(SvakomProtocol.suction(level)).map {
-            AppState.update { state -> state.copy(suctionIntensity = level, lastMessage = "吮吸 $level 档") }
+        val frame = runCatching { SvakomProtocol.suction(level, mode) }
+            .getOrElse { return Result.failure(it) }
+        return write(frame).map {
+            AppState.update { state ->
+                state.copy(
+                    suctionIntensity = level,
+                    suctionMode = if (level > 0) mode else state.suctionMode,
+                    lastMessage = if (level > 0) "吮吸 模式 $mode · $level/5 档" else "吮吸已停止",
+                )
+            }
             level
         }
     }
