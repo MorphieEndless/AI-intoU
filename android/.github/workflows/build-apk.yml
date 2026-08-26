@@ -50,11 +50,11 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-  # 正式签名版：配置了 KEYSTORE_B64 等 Secrets 才会跑，没配就自动跳过
+  # 正式签名版：KEYSTORE_B64 等 Secrets 配置后自动签名；未配置时 job 正常结束但不产出 APK。
+  # 注意：secrets 上下文不能用在 job 级 if（解析期报错），所以用 env + shell 判断
   release:
     name: Release APK (signed)
     needs: debug
-    if: ${{ secrets.KEYSTORE_B64 != '' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -78,12 +78,23 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       - name: Decode keystore
-        run: echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/yingti-release.jks"
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/yingti-release.jks"
+            echo "::notice::Keystore decoded, signed build will run."
+          else
+            echo "::notice::KEYSTORE_B64 not configured - signing skipped."
+          fi
         env:
           KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
 
       - name: Build signed release APK
-        run: ./gradlew --no-daemon assembleRelease
+        run: |
+          if [ -f "$KEYSTORE_PATH" ]; then
+            ./gradlew --no-daemon assembleRelease
+          else
+            echo "::notice::No keystore present - assembleRelease skipped."
+          fi
         env:
           KEYSTORE_PATH: ${{ runner.temp }}/yingti-release.jks
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
@@ -95,5 +106,5 @@ jobs:
         with:
           name: yingti-bridge-release-apk
           path: app/build/outputs/apk/release/app-release.apk
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 30
