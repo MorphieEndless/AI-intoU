@@ -91,7 +91,6 @@ class BleController(private val context: Context, private val scope: CoroutineSc
             }
 
             override fun onScanFailed(errorCode: Int) {
-                if (scannerCallback !== callback) return
                 stopScan()
                 AppState.update { it.copy(bleStatus = "扫描失败 $errorCode") }
                 scheduleScan(1_000)
@@ -125,7 +124,6 @@ class BleController(private val context: Context, private val scope: CoroutineSc
             device.connectGatt(context, false, callback, BluetoothDevice.TRANSPORT_LE)
         } else device.connectGatt(context, false, callback)
         gatt = newGatt
-        // 防止极短时序下旧回调把新连接状态覆盖掉。
         if (generation != connectionGeneration) {
             runCatching { newGatt.close() }
         }
@@ -145,7 +143,6 @@ class BleController(private val context: Context, private val scope: CoroutineSc
     private val callback = object : BluetoothGattCallback() {
         @SuppressLint("MissingPermission")
         override fun onConnectionStateChange(g: BluetoothGatt, status: Int, newState: Int) {
-            // Android BLE 回调可能晚到；旧 GATT 绝不能覆盖当前连接状态。
             if (!isCurrent(g)) {
                 runCatching { g.close() }
                 return
@@ -175,7 +172,6 @@ class BleController(private val context: Context, private val scope: CoroutineSc
             }
             characteristic.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
             writeCharacteristic = characteristic
-            // BALANCED 比 HIGH 更适合持续后台连接，避免部分手机在切后台后频繁断链。
             runCatching { g.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_BALANCED) }
             AppState.update { it.copy(bleStatus = "已连接", deviceName = runCatching { g.device.name }.getOrNull() ?: it.deviceName, error = null) }
             scope.launch { stopAll() }
