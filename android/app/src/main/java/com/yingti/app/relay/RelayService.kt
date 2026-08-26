@@ -39,10 +39,7 @@ class RelayService : Service() {
             ACTION_SCAN -> ble.scan()
             ACTION_VIBRATE -> scope.launch { ble.setVibration(intent?.getDoubleExtra(EXTRA_INTENSITY, 0.0) ?: 0.0) }
             ACTION_SUCTION -> scope.launch {
-                ble.setSuction(
-                    intent?.getDoubleExtra(EXTRA_INTENSITY, 0.0) ?: 0.0,
-                    intent?.getIntExtra(EXTRA_MODE, 5) ?: 5,
-                )
+                ble.setSuction(intent?.getDoubleExtra(EXTRA_INTENSITY, 0.0) ?: 0.0, intent?.getIntExtra(EXTRA_MODE, 5) ?: 5)
             }
             ACTION_RAW -> scope.launch {
                 val hex = intent?.getStringExtra(EXTRA_HEX)
@@ -65,6 +62,12 @@ class RelayService : Service() {
             }
         }
         return START_STICKY
+    }
+
+    /** Activity/task 消失不等于用户要求关闭桥接；持续连接由前台服务负责。 */
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        updateNotification("后台运行中 · 蓝牙与 Relay 保持连接")
+        super.onTaskRemoved(rootIntent)
     }
 
     private fun startBridge() {
@@ -96,14 +99,8 @@ class RelayService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     private fun notification(status: String): Notification {
-        val openIntent = PendingIntent.getActivity(
-            this, 0, Intent(this, MainActivity::class.java),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
-        val stopIntent = PendingIntent.getService(
-            this, 1, Intent(this, RelayService::class.java).setAction(ACTION_STOP_ALL),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
+        val openIntent = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val stopIntent = PendingIntent.getService(this, 1, Intent(this, RelayService::class.java).setAction(ACTION_STOP_ALL), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_yingti)
             .setContentTitle("樱媞 Bridge")
@@ -122,11 +119,9 @@ class RelayService : Service() {
 
     private fun createChannel() {
         val manager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
-        manager.createNotificationChannel(
-            NotificationChannel(CHANNEL_ID, getString(R.string.notification_channel), NotificationManager.IMPORTANCE_LOW).apply {
-                description = getString(R.string.notification_description)
-            }
-        )
+        manager.createNotificationChannel(NotificationChannel(CHANNEL_ID, getString(R.string.notification_channel), NotificationManager.IMPORTANCE_LOW).apply {
+            description = getString(R.string.notification_description)
+        })
     }
 
     companion object {
