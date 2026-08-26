@@ -23,8 +23,7 @@ keystore.properties
 *.apk
 *.aab
 
-# gradle wrapper jar 不进库：CI 用 gradle/actions/setup-gradle 的 gradle-version 方案，
-# 本地如需 wrapper 可自行放回 gradle/wrapper/ 目录
+# gradle wrapper jar 不入库：CI 在 workflow 里用 curl 从 gradle 官方仓库拉取
 gradle/wrapper/gradle-wrapper.jar
 
 # OS

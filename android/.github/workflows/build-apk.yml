@@ -21,16 +21,23 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Gradle 8.9
+      # wrapper jar 不入库，这里拉取官方 8.9.0 的 jar，并给 gradlew 补执行位
+      - name: Fetch gradle wrapper jar
+        run: |
+          mkdir -p gradle/wrapper
+          curl -sSL -o gradle/wrapper/gradle-wrapper.jar \
+            https://raw.githubusercontent.com/gradle/gradle/v8.9.0/gradle/wrapper/gradle-wrapper.jar
+          chmod +x gradlew
+
+      # wrapper 已完整，setup-gradle 只负责缓存；版本由 wrapper.properties 决定（8.9）
+      - name: Set up Gradle (cache)
         uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.9'
 
       - name: Unit tests
-        run: gradle testDebugUnitTest
+        run: ./gradlew --no-daemon testDebugUnitTest
 
       - name: Build debug APK
-        run: gradle assembleDebug
+        run: ./gradlew --no-daemon assembleDebug
 
       - name: APK checksum
         run: sha256sum app/build/outputs/apk/debug/app-debug.apk
@@ -60,10 +67,15 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Gradle 8.9
+      - name: Fetch gradle wrapper jar
+        run: |
+          mkdir -p gradle/wrapper
+          curl -sSL -o gradle/wrapper/gradle-wrapper.jar \
+            https://raw.githubusercontent.com/gradle/gradle/v8.9.0/gradle/wrapper/gradle-wrapper.jar
+          chmod +x gradlew
+
+      - name: Set up Gradle (cache)
         uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.9'
 
       - name: Decode keystore
         run: echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/yingti-release.jks"
@@ -71,7 +83,7 @@ jobs:
           KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
 
       - name: Build signed release APK
-        run: gradle assembleRelease
+        run: ./gradlew --no-daemon assembleRelease
         env:
           KEYSTORE_PATH: ${{ runner.temp }}/yingti-release.jks
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
