@@ -1,9 +1,14 @@
 package com.yingti.app.ui
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.ContentCopy
@@ -30,6 +35,12 @@ fun ConnectionSettingsScreen(
     status: String?,
     error: String?,
     canCancel: Boolean,
+    darkTheme: Boolean,
+    paletteKey: String,
+    devMode: Boolean,
+    onDarkThemeChange: (Boolean) -> Unit,
+    onPaletteChange: (String) -> Unit,
+    onDevModeChange: (Boolean) -> Unit,
     onCancel: () -> Unit,
     onTest: (ConnectionConfig, String) -> Unit,
     onSave: (ConnectionConfig, String, Boolean) -> Unit,
@@ -161,6 +172,55 @@ fun ConnectionSettingsScreen(
                     }
                     Text("密码仅用于本次调用 /auth/login 换取 JWT；勾选后加密保存在本机。服务器签发的 JWT 也会加密保存。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
                 }
+            }
+
+            SettingsSection("外观") {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("深色模式", style = MaterialTheme.typography.bodyLarge)
+                        Text("主页面顶栏也可直接切换", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
+                    }
+                    Switch(checked = darkTheme, onCheckedChange = onDarkThemeChange)
+                }
+                Text("UI 版式", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.secondary)
+                YingtiPalettes.forEach { palette ->
+                    val selected = palette.key == paletteKey
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(
+                                if (selected) MaterialTheme.colorScheme.primaryContainer
+                                else MaterialTheme.colorScheme.surfaceVariant
+                            )
+                            .clickable { onPaletteChange(palette.key) }
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(Modifier.size(20.dp).background(palette.light.primary, CircleShape))
+                        Spacer(Modifier.width(10.dp))
+                        Text(palette.name, style = MaterialTheme.typography.bodyMedium)
+                        Spacer(Modifier.weight(1f))
+                        if (selected) {
+                            Text("当前", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                        }
+                    }
+                }
+            }
+
+            SettingsSection("开发者模式") {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("协议调试入口", style = MaterialTheme.typography.bodyLarge)
+                        Text("主页面显示自定义 HEX 帧", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
+                    }
+                    Switch(checked = devMode, onCheckedChange = onDevModeChange)
+                }
+                Text(
+                    "默认开启：便于适配其他型号玩具时自定义指令帧。关闭后主页面不再显示协议调试。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.secondary,
+                )
             }
 
             SettingsSection("高级路径") {

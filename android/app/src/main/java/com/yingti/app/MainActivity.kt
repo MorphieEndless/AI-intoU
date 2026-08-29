@@ -19,6 +19,7 @@ import com.yingti.app.auth.ConnectionConfig
 import com.yingti.app.relay.RelayService
 import com.yingti.app.ui.ConnectionSettingsScreen
 import com.yingti.app.ui.DashboardScreen
+import com.yingti.app.ui.UiPrefs
 import com.yingti.app.ui.YingtiTheme
 import kotlinx.coroutines.launch
 
@@ -29,8 +30,11 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         val app = application as YingtiApp
         setContent {
-            YingtiTheme {
-                val context = LocalContext.current
+            val context = LocalContext.current
+            var darkTheme by remember { mutableStateOf(UiPrefs.darkTheme(context)) }
+            var paletteKey by remember { mutableStateOf(UiPrefs.paletteKey(context)) }
+            var devMode by remember { mutableStateOf(UiPrefs.devMode(context)) }
+            YingtiTheme(darkTheme = darkTheme, paletteKey = paletteKey) {
                 val scope = rememberCoroutineScope()
                 val bridge by AppState.state.collectAsStateWithLifecycle()
                 var configured by remember { mutableStateOf(app.tokenStore.isConfigured) }
@@ -113,6 +117,21 @@ class MainActivity : ComponentActivity() {
                         status = connectionStatus,
                         error = connectionError,
                         canCancel = configured,
+                        darkTheme = darkTheme,
+                        paletteKey = paletteKey,
+                        devMode = devMode,
+                        onDarkThemeChange = {
+                            darkTheme = it
+                            UiPrefs.setDarkTheme(context, it)
+                        },
+                        onPaletteChange = {
+                            paletteKey = it
+                            UiPrefs.setPaletteKey(context, it)
+                        },
+                        onDevModeChange = {
+                            devMode = it
+                            UiPrefs.setDevMode(context, it)
+                        },
                         onCancel = {
                             connectionStatus = null
                             connectionError = null
@@ -125,6 +144,12 @@ class MainActivity : ComponentActivity() {
                     AppScreen.DASHBOARD -> DashboardScreen(
                         state = bridge,
                         server = app.tokenStore.serverBaseUrl,
+                        darkTheme = darkTheme,
+                        devMode = devMode,
+                        onToggleTheme = {
+                            darkTheme = !darkTheme
+                            UiPrefs.setDarkTheme(context, darkTheme)
+                        },
                         onScan = { RelayService.send(context, RelayService.ACTION_SCAN) },
                         onVibrate = { RelayService.send(context, RelayService.ACTION_VIBRATE, it) },
                         onStop = { RelayService.send(context, RelayService.ACTION_STOP_ALL) },

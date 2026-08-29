@@ -12,8 +12,8 @@ android {
         applicationId = "com.yingti.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 13
-        versionName = "0.10.3"
+        versionCode = 15
+        versionName = "0.11.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
