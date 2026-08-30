@@ -280,7 +280,7 @@ class CommandDispatcher(
     private companion object {
         const val MIN_STEP_MS = 100
         const val MAX_CUSTOM_STEPS = 128
-        const val MAX_CUSTOM_REPEAT = 20
+        const val MAX_CUSTOM_REPEAT = 60
         const val MAX_CUSTOM_DURATION_MS = 10 * 60 * 1000L
     }
 }
