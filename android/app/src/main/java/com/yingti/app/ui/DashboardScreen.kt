@@ -209,6 +209,44 @@ fun DashboardScreen(
 }
 
 @Composable
+private fun StatusCard(modifier: Modifier, icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, status: String) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.surface,
+        tonalElevation = 1.dp,
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(icon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(label, style = MaterialTheme.typography.labelLarge)
+            }
+            Spacer(Modifier.height(10.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    Modifier.size(10.dp).background(
+                        color = when {
+                            status.contains("已连接") -> Color(0xFF2E7D32)
+                            status.contains("扫描") || status.contains("连接") || status.contains("发现服务") -> Color(0xFF2E6FB5)
+                            else -> Color(0xFF9E9E9E)
+                        },
+                        shape = CircleShape,
+                    )
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    status,
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun SuctionCard(
     panel: SuctionPanel,
     selectedToy: Int,
@@ -224,78 +262,75 @@ private fun SuctionCard(
     Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surface, tonalElevation = 2.dp) {
         Column(Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("吮吸", style = MaterialTheme.typography.titleLarge)
-                    Text("模式与 1-5 档强度独立控制", color = MaterialTheme.colorScheme.secondary)
+                Text("吮吸", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+                TabRow(
+                    selectedTabIndex = panel.ordinal,
+                    modifier = Modifier.width(180.dp),
+                    containerColor = Color.Transparent,
+                ) {
+                    Tab(
+                        selected = panel == SuctionPanel.TOY,
+                        onClick = { onPanelChange(SuctionPanel.TOY) },
+                        text = { Text("玩具预设") },
+                    )
+                    Tab(
+                        selected = panel == SuctionPanel.FREE,
+                        onClick = { onPanelChange(SuctionPanel.FREE) },
+                        text = { Text("自由组合") },
+                    )
                 }
-                TextButton(onClick = onStopSuction) { Text("停止") }
-            }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(
-                    selected = panel == SuctionPanel.TOY,
-                    onClick = { onPanelChange(SuctionPanel.TOY) },
-                    label = { Text("玩具档") },
-                    modifier = Modifier.weight(1f),
-                )
-                FilterChip(
-                    selected = panel == SuctionPanel.FREE,
-                    onClick = { onPanelChange(SuctionPanel.FREE) },
-                    label = { Text("自由模式") },
-                    modifier = Modifier.weight(1f),
-                )
             }
 
             if (panel == SuctionPanel.TOY) {
-                toyPresets.chunked(3).forEachIndexed { rowIndex, row ->
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        row.forEachIndexed { columnIndex, preset ->
-                            val index = rowIndex * 3 + columnIndex
-                            ElevatedButton(
-                                onClick = { onToyPreset(preset) },
-                                modifier = Modifier.weight(1f).height(72.dp),
-                                // v0.11.1: 收窄内边距 + 副标题允许两行换行，修复「持续·弱」被截成「持续…」。
-                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp),
-                                colors = if (selectedToy == index) {
-                                    ButtonDefaults.elevatedButtonColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
-                                } else ButtonDefaults.elevatedButtonColors(),
-                            ) {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Text(
-                                        preset.label,
-                                        style = MaterialTheme.typography.titleLarge,
-                                        maxLines = 1,
-                                    )
-                                    Text(
-                                        preset.detail,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        textAlign = TextAlign.Center,
-                                        maxLines = 2,
-                                        softWrap = true,
-                                        overflow = TextOverflow.Ellipsis,
-                                        modifier = Modifier.fillMaxWidth(),
-                                    )
-                                }
+                Text(
+                    "对应玩具机身档位（1-3 档为持续档；4-6 档为节奏档，对应协议 06/07/08）",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.secondary,
+                )
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    toyPresets.forEachIndexed { idx, preset ->
+                        val isSelected = selectedToy == idx
+                        ElevatedButton(
+                            onClick = { onToyPreset(preset) },
+                            modifier = Modifier.weight(1f),
+                            colors = if (isSelected) ButtonDefaults.elevatedButtonColors(
+                                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                            ) else ButtonDefaults.elevatedButtonColors(),
+                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 10.dp),
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(preset.label, style = MaterialTheme.typography.titleMedium)
+                                Text(preset.detail, style = MaterialTheme.typography.labelSmall)
                             }
                         }
                     }
                 }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    TextButton(onClick = onStopSuction) { Text("停止") }
+                }
             } else {
-                Text("模式 byte4 · ${mode.toString().padStart(2, '0')}", style = MaterialTheme.typography.titleMedium)
-                suctionModes.chunked(2).forEach { row ->
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        row.forEach { (value, label) ->
-                            FilterChip(
-                                selected = mode == value,
-                                onClick = { onModeChange(value) },
-                                label = { Text(label) },
-                                modifier = Modifier.weight(1f),
-                            )
-                        }
+                Text("模式", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.secondary)
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    suctionModes.forEach { (m, label) ->
+                        FilterChip(
+                            selected = mode == m,
+                            onClick = { onModeChange(m) },
+                            label = { Text(label, style = MaterialTheme.typography.bodySmall) },
+                            modifier = Modifier.weight(1f),
+                        )
                     }
                 }
+                Spacer(Modifier.height(4.dp))
                 Row(verticalAlignment = Alignment.Bottom) {
-                    Text(level.roundToInt().toString(), style = MaterialTheme.typography.displaySmall)
-                    Text(" / 5 档强度", modifier = Modifier.padding(bottom = 8.dp), color = MaterialTheme.colorScheme.secondary)
+                    Text("${level.roundToInt()}", style = MaterialTheme.typography.displaySmall)
+                    Text(" / 5 档", modifier = Modifier.padding(bottom = 6.dp), color = MaterialTheme.colorScheme.secondary)
                 }
                 Slider(
                     value = level,
@@ -303,83 +338,81 @@ private fun SuctionCard(
                     valueRange = 1f..5f,
                     steps = 3,
                 )
-                Button(onClick = onApplyFree, modifier = Modifier.fillMaxWidth()) {
-                    Text("应用模式 ${mode.toString().padStart(2, '0')} · ${level.roundToInt()}/5")
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    OutlinedButton(onClick = onStopSuction, modifier = Modifier.weight(1f)) {
+                        Text("停止")
+                    }
+                    YingtiPrimaryButton(onClick = onApplyFree, modifier = Modifier.weight(1f)) {
+                        Text("应用")
+                    }
                 }
             }
         }
     }
 }
-
-/** 状态卡：绿=已连接，蓝=进行中（扫描/连接/发现服务），灰=断开/未开启。 */
-@Composable
-private fun StatusCard(modifier: Modifier, icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, status: String) {
-    val dotColor = when {
-        status.contains("已连接") -> Color(0xFF2E7D32)
-        status.contains("扫描") || status.contains("连接") || status.contains("发现服务") -> Color(0xFF2E6FB5)
-        else -> Color(0xFF9E9E9E)
-    }
-    Surface(modifier, shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surface, tonalElevation = 1.dp) {
-        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(icon, null)
-                Spacer(Modifier.weight(1f))
-                Box(Modifier.size(9.dp).background(dotColor, CircleShape))
-            }
-            Text(title, style = MaterialTheme.typography.labelLarge)
-            Text(status, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
-        }
-    }
-}
-
-private val quickFrames = listOf(
-    "已验证·7字节" to listOf(
-        "震动5档 55 03 00 00 05 01 00",
-        "震动满 55 03 00 00 0A 01 00",
-        "增强帧 55 03 00 00 05 05 00",
-        "停止 55 03 00 00 00 00 00",
-    ),
-    "吮吸·模式与强度" to listOf(
-        "持续5 55 09 00 00 05 05 00",
-        "脉冲5 55 09 00 00 01 05 00",
-        "节奏3 55 09 00 00 06 03 00",
-        "停止 55 09 00 00 00 00 00",
-    ),
-    "校准·02/03 抖动" to listOf(
-        "抖动02 55 09 00 00 02 03 00",
-        "抖动03 55 09 00 00 03 03 00",
-    ),
-)
 
 @Composable
 private fun ProtocolDebugCard(lastMessage: String, onSendRaw: (String) -> Unit) {
-    var hex by remember { mutableStateOf("55 03 00 00 01 01 00") }
-    Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceVariant, tonalElevation = 1.dp) {
-        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("协议调试", style = MaterialTheme.typography.titleSmall)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(
-                    value = hex,
-                    onValueChange = { hex = it },
-                    modifier = Modifier.weight(1f),
-                    singleLine = true,
-                    textStyle = MaterialTheme.typography.bodySmall,
-                    label = { Text("HEX 帧") },
-                )
-                Button(onClick = { if (hex.isNotBlank()) onSendRaw(hex) }) { Text("发送") }
-            }
-            quickFrames.forEach { (group, frames) ->
-                Text(group, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary)
-                frames.forEach { frame ->
-                    val label = frame.substringBefore(' ')
-                    val bytes = frame.substringAfter(' ')
-                    AssistChip(
-                        onClick = { onSendRaw(bytes) },
-                        label = { Text("$label · $bytes", style = MaterialTheme.typography.bodySmall) },
-                    )
+    var rawInput by remember { mutableStateOf("") }
+    var sentConfirm by remember { mutableStateOf(false) }
+
+    Surface(
+        shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        tonalElevation = 1.dp,
+    ) {
+        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("协议调试", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "原始帧下发（大写 HEX，以 55AA 开头，必须为 8/9/10 字节）",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.secondary,
+            )
+            OutlinedTextField(
+                value = rawInput,
+                onValueChange = {
+                    rawInput = it
+                    sentConfirm = false
+                },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("自定义 HEX 指令") },
+                placeholder = { Text("55AA...") },
+                singleLine = true,
+                isError = rawInput.isNotBlank() && !isValidHex(rawInput),
+                supportingText = {
+                    if (rawInput.isNotBlank() && !isValidHex(rawInput)) {
+                        Text("格式错误：需为 8/9/10 字节偶数位 HEX，如 55AA04010000005F")
+                    } else if (sentConfirm) {
+                        Text("已发送：$lastMessage", color = MaterialTheme.colorScheme.primary)
+                    }
+                }
+            )
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                Button(
+                    onClick = {
+                        val hex = rawInput.trim().replace(" ", "").uppercase()
+                        if (isValidHex(hex)) {
+                            onSendRaw(hex)
+                            sentConfirm = true
+                        }
+                    },
+                    enabled = isValidHex(rawInput),
+                ) {
+                    Text("发送")
                 }
             }
-            Text("最近: $lastMessage", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
         }
     }
+}
+
+private fun isValidHex(input: String): Boolean {
+    val clean = input.trim().replace(" ", "").uppercase()
+    if (!clean.startsWith("55AA")) return false
+    if (clean.length % 2 != 0) return false
+    val byteCount = clean.length / 2
+    if (byteCount !in 8..10) return false
+    return clean.all { it in '0'..'9' || it in 'A'..'F' }
 }

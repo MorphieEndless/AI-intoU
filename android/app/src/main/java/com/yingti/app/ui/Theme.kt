@@ -7,16 +7,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
 
-/**
- * 樱媞 Bridge 主题：5 套可切换 UI 版式（酒红/浅蓝/浅绿/浅黄/浅紫），各带亮/暗模式。
- * 亮色底统一暖白（#F8F5F2 / #FFFBF8），暗色底统一深棕（#1C1416 / #241B1D），
- * 变体只改 primary 系 + secondary + surfaceVariant，保持品牌底色一致。
- *
- * v0.11.1：每套版式只存品牌基础色（[YingtiPaletteBase]），
- * 其余全部 ColorScheme 槽位由 [YingtiPaletteBase.toScheme] 派生补全，
- * 修复换肤后 slider 轨道 / FilterChip / 按钮 / Switch / Checkbox 等
- * 次级组件回落 M3 baseline 紫灰的问题。
- */
+/** 九套可切换版式，各带亮/暗模式；原有五套 key 和 primary 系推导保持不变。 */
 data class YingtiPalette(
     val key: String,
     val name: String,
@@ -36,27 +27,34 @@ data class YingtiPaletteBase(
     val surfaceVariant: Color,
     val onSurfaceVariant: Color? = null,
     val error: Color = Color(0xFFBA1A1A),
+    val onSurface: Color? = null,
+    val secondaryContainer: Color? = null,
+    val onSecondaryContainer: Color? = null,
+    val onSecondary: Color? = null,
+    val inverseSurface: Color? = null,
+    val inverseOnSurface: Color? = null,
+    val darkContent: Color = Color(0xFF1C1B1F),
 )
 
-/** 从基础色派生完整 ColorScheme（亮/暗共用一套推导规则，保证 10 组一致）。 */
+/** 从基础色派生完整 ColorScheme（亮/暗共用一套推导规则，保持各版式一致）。 */
 fun YingtiPaletteBase.toScheme(dark: Boolean): ColorScheme {
     val s = surface
     val sv = surfaceVariant
 
     // 文字/内容色：亮色深、暗色浅
-    val onSurface = if (dark) Color(0xFFE6E1E5) else Color(0xFF1C1B1F)
+    val onSurface = this.onSurface ?: if (dark) Color(0xFFE6E1E5) else Color(0xFF1C1B1F)
     val onSurfaceV = onSurfaceVariant ?: if (dark) Color(0xFFCAC4D0) else Color(0xFF49454F)
 
     // secondary 系：容器色由 surface 向 secondary 混色；前景按容器明度自适应
-    val onSecondary = if (secondary.luminance() > 0.5f) Color(0xFF1C1B1F) else Color.White
-    val secondaryContainer = lerp(s, secondary, if (dark) 0.30f else 0.14f)
-    val onSecondaryContainer = if (secondaryContainer.luminance() > 0.5f) Color(0xFF1C1B1F) else Color.White
+    val onSecondary = this.onSecondary ?: if (secondary.luminance() > 0.5f) darkContent else Color.White
+    val secondaryContainer = this.secondaryContainer ?: lerp(s, secondary, if (dark) 0.30f else 0.14f)
+    val onSecondaryContainer = this.onSecondaryContainer ?: if (secondaryContainer.luminance() > 0.5f) darkContent else Color.White
 
     // tertiary 系：secondary 向 primary 微偏，作为点缀（当前界面未使用，补全以防回落）
     val tertiary = lerp(secondary, primary, 0.15f)
-    val onTertiary = if (tertiary.luminance() > 0.5f) Color(0xFF1C1B1F) else Color.White
+    val onTertiary = if (tertiary.luminance() > 0.5f) darkContent else Color.White
     val tertiaryContainer = lerp(s, tertiary, if (dark) 0.30f else 0.14f)
-    val onTertiaryContainer = if (tertiaryContainer.luminance() > 0.5f) Color(0xFF1C1B1F) else Color.White
+    val onTertiaryContainer = if (tertiaryContainer.luminance() > 0.5f) darkContent else Color.White
 
     // error 系：M3 标准语义色（error 槽位仍可被各版式覆盖）
     val onError = if (dark) Color(0xFF690005) else Color.White
@@ -77,8 +75,8 @@ fun YingtiPaletteBase.toScheme(dark: Boolean): ColorScheme {
     val surfaceBright = lerp(s, Color.White, 0.06f)
 
     // inverse 系：当前界面未直接使用，按 M3 惯例补全
-    val inverseSurface = if (dark) Color(0xFFE6E1E5) else Color(0xFF322F35)
-    val inverseOnSurface = if (dark) Color(0xFF322F35) else Color(0xFFF5EFF4)
+    val inverseSurface = this.inverseSurface ?: if (dark) Color(0xFFE6E1E5) else Color(0xFF322F35)
+    val inverseOnSurface = this.inverseOnSurface ?: if (dark) Color(0xFF322F35) else Color(0xFFF5EFF4)
     val inversePrimary = if (dark) lerp(primary, Color.Black, 0.35f) else lerp(primary, Color.White, 0.25f)
 
     return if (dark) darkColorScheme(
@@ -167,7 +165,7 @@ private fun palette(
 
 private val Wine = palette(
     key = "wine",
-    name = "酒红",
+    name = "浆果红",
     light = YingtiPaletteBase(
         primary = Color(0xFF8E354A),
         onPrimary = Color.White,
@@ -193,7 +191,7 @@ private val Wine = palette(
 
 private val Blue = palette(
     key = "blue",
-    name = "浅蓝",
+    name = "雾霾蓝",
     light = YingtiPaletteBase(
         primary = Color(0xFF3D6FA8),
         onPrimary = Color.White,
@@ -219,7 +217,7 @@ private val Blue = palette(
 
 private val Green = palette(
     key = "green",
-    name = "浅绿",
+    name = "青松绿",
     light = YingtiPaletteBase(
         primary = Color(0xFF3E7A5C),
         onPrimary = Color.White,
@@ -245,7 +243,7 @@ private val Green = palette(
 
 private val Yellow = palette(
     key = "yellow",
-    name = "浅黄",
+    name = "琥珀黄",
     light = YingtiPaletteBase(
         primary = Color(0xFF9A7B2D),
         onPrimary = Color.White,
@@ -271,7 +269,7 @@ private val Yellow = palette(
 
 private val Purple = palette(
     key = "purple",
-    name = "浅紫",
+    name = "烟熏紫",
     light = YingtiPaletteBase(
         primary = Color(0xFF7A50A3),
         onPrimary = Color.White,
@@ -295,7 +293,138 @@ private val Purple = palette(
     ),
 )
 
-val YingtiPalettes = listOf(Wine, Blue, Green, Yellow, Purple)
+private val Gemini = palette(
+    key = "gemini",
+    name = "Gemini",
+    light = YingtiPaletteBase(
+        primary = Color(0xFFDE6B93),
+        onPrimary = Color(0xFF33252B),
+        primaryContainer = Color(0xFFFCE3EC),
+        onPrimaryContainer = Color(0xFF5A1630),
+        secondary = Color(0xFF6F9FD3),
+        background = Color(0xFFFAF5F6),
+        surface = Color(0xFFFFFFFF),
+        surfaceVariant = Color(0xFFF7F0F3),
+        onSurface = Color(0xFF33252B),
+        onSurfaceVariant = Color(0xFF73616A),
+        secondaryContainer = Color(0xFFE4EFFB),
+        onSecondaryContainer = Color(0xFF23405F),
+        onSecondary = Color(0xFF33252B),
+    ),
+    dark = YingtiPaletteBase(
+        primary = Color(0xFFF59CB8),
+        onPrimary = Color(0xFF45222F),
+        primaryContainer = Color(0xFF45222F),
+        onPrimaryContainer = Color(0xFFF6EDF0),
+        secondary = Color(0xFF9CC3EF),
+        background = Color(0xFF1B1618),
+        surface = Color(0xFF262022),
+        surfaceVariant = Color(0xFF382C32),
+        onSurface = Color(0xFFF6EDF0),
+        onSurfaceVariant = Color(0xFFD8BBC7),
+        secondaryContainer = Color(0xFF223247),
+        onSecondaryContainer = Color(0xFFCFE3FA),
+    ),
+)
+
+private val DeepSeek = palette(
+    key = "deepseek",
+    name = "DeepSeek",
+    light = YingtiPaletteBase(
+        primary = Color(0xFF4561EA),
+        onPrimary = Color(0xFFFFFFFF),
+        primaryContainer = Color(0xFFE4E9FF),
+        onPrimaryContainer = Color(0xFF223B9A),
+        secondary = Color(0xFF4760B3),
+        background = Color(0xFFF4F6FA),
+        surface = Color(0xFFFFFFFF),
+        surfaceVariant = Color(0xFFE7EBF3),
+        onSurface = Color(0xFF1F2733),
+        onSurfaceVariant = Color(0xFF4E5D73),
+    ),
+    dark = YingtiPaletteBase(
+        primary = Color(0xFF9BABFF),
+        onPrimary = Color(0xFF162467),
+        primaryContainer = Color(0xFF293963),
+        onPrimaryContainer = Color(0xFFDDE3FF),
+        secondary = Color(0xFF9EAFE8),
+        background = Color(0xFF1F2733),
+        surface = Color(0xFF283241),
+        surfaceVariant = Color(0xFF354255),
+        onSurface = Color(0xFFEDF1F7),
+        onSurfaceVariant = Color(0xFFBECADE),
+        onSecondary = Color(0xFF162467),
+    ),
+)
+
+private val ChatGPT = palette(
+    key = "chatgpt",
+    name = "ChatGPT",
+    light = YingtiPaletteBase(
+        darkContent = Color(0xFF111111),
+        primary = Color(0xFF000000),
+        onPrimary = Color(0xFFFFFFFF),
+        primaryContainer = Color(0xFFE8E8E8),
+        onPrimaryContainer = Color(0xFF111111),
+        secondary = Color(0xFF595959),
+        background = Color(0xFFFFFFFF),
+        surface = Color(0xFFFFFFFF),
+        surfaceVariant = Color(0xFFF0F0F0),
+        onSurface = Color(0xFF111111),
+        onSurfaceVariant = Color(0xFF595959),
+        onSecondary = Color(0xFFFFFFFF),
+        inverseSurface = Color(0xFF242424),
+        inverseOnSurface = Color(0xFFF5F5F5),
+    ),
+    dark = YingtiPaletteBase(
+        darkContent = Color(0xFF111111),
+        primary = Color(0xFFFFFFFF),
+        onPrimary = Color(0xFF000000),
+        primaryContainer = Color(0xFF303030),
+        onPrimaryContainer = Color(0xFFFFFFFF),
+        secondary = Color(0xFFBDBDBD),
+        background = Color(0xFF000000),
+        surface = Color(0xFF171717),
+        surfaceVariant = Color(0xFF303030),
+        onSurface = Color(0xFFFFFFFF),
+        onSurfaceVariant = Color(0xFFBDBDBD),
+        inverseSurface = Color(0xFFEEEEEE),
+        inverseOnSurface = Color(0xFF242424),
+    ),
+)
+
+private val Claude = palette(
+    key = "claude",
+    name = "Claude",
+    light = YingtiPaletteBase(
+        primary = Color(0xFFD97757),
+        onPrimary = Color(0xFF30180F),
+        primaryContainer = Color(0xFFF7E0D5),
+        onPrimaryContainer = Color(0xFF5A2D1D),
+        secondary = Color(0xFF88634D),
+        background = Color(0xFFFAF8F3),
+        surface = Color(0xFFFFFDFA),
+        surfaceVariant = Color(0xFFF0E8DF),
+        onSurface = Color(0xFF302B27),
+        onSurfaceVariant = Color(0xFF6C5F55),
+    ),
+    dark = YingtiPaletteBase(
+        primary = Color(0xFFEDAD91),
+        onPrimary = Color(0xFF482518),
+        primaryContainer = Color(0xFF5B382B),
+        onPrimaryContainer = Color(0xFFFFE5D7),
+        secondary = Color(0xFFD9B9A3),
+        background = Color(0xFF211C19),
+        surface = Color(0xFF2B2521),
+        surfaceVariant = Color(0xFF41362E),
+        onSurface = Color(0xFFF3EBE5),
+        onSurfaceVariant = Color(0xFFD2BFB0),
+    ),
+)
+
+val YingtiPalettes = listOf(Wine, Blue, Green, Yellow, Purple, Gemini, DeepSeek, ChatGPT, Claude)
+
+internal val LocalYingtiPaletteKey = androidx.compose.runtime.staticCompositionLocalOf { "wine" }
 
 @Composable
 fun YingtiTheme(
@@ -304,9 +433,11 @@ fun YingtiTheme(
     content: @Composable () -> Unit,
 ) {
     val palette = YingtiPalettes.firstOrNull { it.key == paletteKey } ?: Wine
-    MaterialTheme(
-        colorScheme = if (darkTheme) palette.dark else palette.light,
-        typography = Typography(),
-        content = content,
-    )
+    androidx.compose.runtime.CompositionLocalProvider(LocalYingtiPaletteKey provides palette.key) {
+        MaterialTheme(
+            colorScheme = if (darkTheme) palette.dark else palette.light,
+            typography = Typography(),
+            content = content,
+        )
+    }
 }

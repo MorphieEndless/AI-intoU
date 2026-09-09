@@ -32,48 +32,37 @@ SVAKOM SX589B 等蓝牙玩具
 
 两个子项目各自保留完整 git 历史，`git log -- server/` 或 `git log -- android/` 都能溯源。
 
-## 快速开始（给群友的傻瓜版）
+## 快速开始
 
-### 你需要准备
-
-1. 一台有公网 IP 的机器（VPS 就行，1C1G 够用），装好 Docker
-2. 一个安卓手机（Android 8.0+），放在玩具旁边
-3. 一只 SVAKOM SX589B（震动 0-10 档、吮吸 0-5 档）
-4. 一个 RikkaHub（或任何支持 MCP 的 Agent 客户端）
-
-### 第一步：部署服务端
+准备 Linux 服务器（Git、Python 3、curl、Docker Engine 与 Compose 插件）、Android 8.0+ 手机和支持 Streamable HTTP 的 MCP 客户端。私有仓库需要有访问权限的 GitHub 账号。
 
 ```bash
-git clone <本仓库地址> && cd <本仓库>
+git clone https://github.com/MorphieEndless/AI-intoU.git
+cd AI-intoU
 bash deploy/setup-server.sh
 ```
 
-脚本会自动生成 `.env` 和密钥，构建镜像并启动服务，最后打印出你的 **Bearer Token**，抄下来。
+首次运行会生成密钥和 Bearer Token，强制 MCP 认证，并将数据存进 Docker 持久化卷。私下保存终端打印的 Token，App 和 MCP 共用。已有 `.env` 不会覆盖；旧部署先备份并按教程迁移数据。
 
-> 公网使用必须配 HTTPS/WSS（Caddy 反代 8420 端口即可），明文 HTTP 只建议内网用。
+**默认仅监听 `127.0.0.1:8420`。公网需要配置 HTTPS/WSS 反向代理后，手机才能接入。** 完整步骤见 [部署教程](docs/DEPLOY.md)，包含宿主机 Caddy 配置、可信内网/VPN 的 IP 直连、APK 下载和常见故障。明文 HTTP 仅建议在可信内网或 VPN 内使用。
 
-### 第二步：装 App
+| 配置位置 | HTTPS 示例 |
+| --- | --- |
+| App 服务器地址 | `https://example.com` |
+| App 认证方式 | Bearer Token，只填 Token 本身 |
+| MCP URL | `https://example.com/mcp` |
+| MCP 请求头 | `Authorization: Bearer YOUR_SERVER_TOKEN` |
 
-去 Actions 页面下载最新 `yingti-bridge-debug-apk`（或签名版 release APK），装到玩具旁边的手机上。
+将示例域名与 Token 换成自己的。APK 可从 [Actions](https://github.com/MorphieEndless/AI-intoU/actions/workflows/build-apk.yml) 中成功的 Build APK 运行下载并解压安装。配置签名后才会提供签名构建；Actions 构建产物不会自动成为 Release。
 
-App 里填三样：
-
-- 服务器地址：`https://你的域名`
-- Bearer Token：上一步抄下来的那个
-- 保存，它会自动测连接，然后就能扫码连上你的 SX589B
-
-### 第三步：让 AI 连上来
-
-在 RikkaHub 里添加 MCP 服务器，地址填 `https://你的域名/mcp`，Authorization 用同一个 Bearer Token。
-
-然后你就可以对它说："启动玩具，波浪模式，中等强度"了。
+App 中点击“测试连接”，成功后“保存并启动”，再按系统提示授予蓝牙权限并扫描设备。先检查 Relay 状态和 MCP 工具列表，无需发送设备输出命令来验证网络。
 
 ## 功能
 
 - SX589B 原生 BLE 直连：震动 0-10 档、吮吸 0-5 档 / 模式 1-8
 - 命令类型：direct / pulse / wave / escalate / custom pattern，全支持
-- 服务端有 safety governor（过热自动冷却）、断线急停、心跳保活
-- App 记住密码（EncryptedSharedPreferences）、5 套换肤、深色模式、开发者 HEX 调试
+- 服务端有 safety governor（按强度与时长估算负荷并限流，不是硬件温度监测）、断线急停、心跳保活
+- App 记住密码（EncryptedSharedPreferences）、9 套换肤、深色模式、开发者 HEX 调试
 - 支持静态 Bearer Token（单用户自部署）与账号/JWT/OAuth（多用户）两种模式
 - CI 自动出 APK，配好 secrets 后自动签名
 

@@ -4,7 +4,8 @@ services:
   signal-bridge:
     build: .
     ports:
-      - "8420:8420"
+      # 默认只供宿主机反向代理访问；可信内网/VPN 直连可显式设 SB_BIND_ADDRESS=0.0.0.0。
+      - "${SB_BIND_ADDRESS:-127.0.0.1}:8420:8420"
     volumes:
       - sb_data:/data
     env_file:

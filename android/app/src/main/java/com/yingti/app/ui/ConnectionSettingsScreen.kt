@@ -1,5 +1,11 @@
 package com.yingti.app.ui
 
+import android.content.ActivityNotFoundException
+import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
+import androidx.compose.ui.platform.LocalContext
+import com.yingti.app.BuildConfig
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -46,6 +52,16 @@ fun ConnectionSettingsScreen(
     onSave: (ConnectionConfig, String, Boolean) -> Unit,
     onCopy: (String, String) -> Unit,
 ) {
+    val context = LocalContext.current
+    fun openProjectPage(url: String) {
+        try {
+            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+        } catch (_: ActivityNotFoundException) {
+            Toast.makeText(context, "没有可打开网页的浏览器，请安装浏览器后重试", Toast.LENGTH_LONG).show()
+        } catch (_: SecurityException) {
+            Toast.makeText(context, "系统阻止打开网页，请检查浏览器设置", Toast.LENGTH_LONG).show()
+        }
+    }
     var server by remember(initialConfig.serverBaseUrl) { mutableStateOf(initialConfig.serverBaseUrl) }
     var authMode by remember(initialConfig.authMode) { mutableStateOf(initialConfig.authMode) }
     var token by remember(initialConfig.token) { mutableStateOf(initialConfig.token) }
@@ -197,7 +213,7 @@ fun ConnectionSettingsScreen(
                             .padding(horizontal = 12.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Box(Modifier.size(20.dp).background(palette.light.primary, CircleShape))
+                        Box(Modifier.size(20.dp).background(if (darkTheme) palette.dark.primary else palette.light.primary, CircleShape))
                         Spacer(Modifier.width(10.dp))
                         Text(palette.name, style = MaterialTheme.typography.bodyMedium)
                         Spacer(Modifier.weight(1f))
@@ -260,7 +276,7 @@ fun ConnectionSettingsScreen(
                     modifier = Modifier.weight(1f).height(52.dp),
                     enabled = !loading && formReady,
                 ) { Text("测试连接") }
-                Button(
+                YingtiPrimaryButton(
                     onClick = { onSave(draft, password, rememberPassword) },
                     modifier = Modifier.weight(1f).height(52.dp),
                     enabled = !loading && formReady,
@@ -285,6 +301,23 @@ fun ConnectionSettingsScreen(
                         modifier = Modifier.weight(1f),
                     ) { Text("复制 Authorization") }
                 }
+            }
+            SettingsSection("关于") {
+                Text("AI-intoU · 樱趣  ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
+                    style = MaterialTheme.typography.bodyMedium)
+                OutlinedButton(
+                    onClick = { openProjectPage("https://github.com/MorphieEndless/AI-intoU/releases") },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("检查更新") }
+                Text(
+                    "打开 GitHub Releases 手动查看版本。私有仓库需登录有访问权限的 GitHub 账号；尚未发布版本时，页面可能为空。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                OutlinedButton(
+                    onClick = { openProjectPage("https://github.com/MorphieEndless/AI-intoU") },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("作者信息 · MorphieEndless") }
             }
             Spacer(Modifier.height(24.dp))
         }
