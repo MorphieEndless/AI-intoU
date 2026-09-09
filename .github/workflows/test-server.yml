@@ -23,7 +23,7 @@ jobs:
           bash -n deploy/setup-server.sh
           python -m unittest discover -s deploy/tests -v
       - name: Install dependencies
-        run: python -m pip install -r requirements-server.txt httpx
+        run: python -m pip install -r requirements-server.txt httpx buttplug
       - name: Compile Python sources
         run: python -m compileall -q server tests
       - name: Server verification
