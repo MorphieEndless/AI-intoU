@@ -1,3 +1,24 @@
-<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
-    <path android:fillColor="#FFFFFFFF" android:pathData="M12,2C8.1,2 5,5.1 5,9c0,5.25 7,13 7,13s7,-7.75 7,-13c0,-3.9 -3.1,-7 -7,-7zM12,12.5A3.5,3.5 0,1 1,12 5.5a3.5,3.5 0,0 1,0 7z"/>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- Sakura Blossom Silhouette with notched petal tips -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M 11,10.2 C 10.2,8.5 8.8,6.2 9.5,4.8 C 10.3,5.2 10.8,5.5 11,5.2 C 11.2,5.5 11.7,5.2 12.5,4.8 C 13.2,6.2 11.8,8.5 11,10.2 Z M 12.2,11.5 C 13.8,11 16.2,9.8 17.2,10.8 C 16.8,11.5 16.5,11.8 16.8,12 C 16.5,12.2 16.8,12.7 17.2,13.2 C 16.2,14.2 13.8,13 12.2,12.5 Z M 11.8,12.8 C 12.5,14.2 13.2,16.8 12,17.5 C 11.5,16.8 11.2,16.8 11,17 C 10.8,16.8 10.5,16.8 10,17.5 C 8.8,16.8 9.5,14.2 10.2,12.8 Z M 9.8,12.5 C 8.2,13 5.8,14.2 4.8,13.2 C 5.2,12.7 5.5,12.2 5.2,12 C 5.5,11.8 5.2,11.5 4.8,10.8 C 5.8,9.8 8.2,11 9.8,11.5 Z M 10.2,11.2 C 9.5,9.8 7.5,8.2 8,7 C 8.8,7.3 9.2,7.5 9.5,7.2 C 9.7,7.5 10.2,7.3 10.5,7 C 11,8.2 10.5,9.8 10.2,11.2 Z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M 11,12 m -1.2,0 a 1.2,1.2 0 1,0 2.4,0 a 1.2,1.2 0 1,0 -2.4,0" />
+    <!-- Remote Signal Arcs in Top-Right -->
+    <path
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.2"
+        android:strokeLineCap="round"
+        android:pathData="M 17,4 C 19,5 20,7 20.5,9.5" />
+    <path
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.2"
+        android:strokeLineCap="round"
+        android:pathData="M 15.2,6 C 16.5,6.8 17.2,8 17.5,9.5" />
 </vector>
