@@ -14,7 +14,8 @@ class ThemeTest {
     }
 
     @Test fun paletteKeysStayCompatibleAndUnique() {
-        assertEquals(listOf("wine", "blue", "green", "yellow", "purple", "gemini", "deepseek", "chatgpt", "claude"), YingtiPalettes.map { it.key })\n    }
+        assertEquals(listOf("wine", "blue", "green", "yellow", "purple", "gemini", "deepseek", "chatgpt", "claude"), YingtiPalettes.map { it.key })
+    }
 
     @Test fun originalPalettesAreUnchanged() {
         listOf(Wine, Blue, Green, Yellow, Purple).zip(YingtiPalettes).forEach { (before, after) ->
@@ -70,6 +71,7 @@ class ThemeTest {
 
     private fun palette(key: String, name: String, light: YingtiPaletteBase, dark: YingtiPaletteBase) =
         YingtiPalette(key, name, light.toScheme(false), dark.toScheme(true))
+}
 
 private val Wine = palette(
     key = "wine",
@@ -200,5 +202,3 @@ private val Purple = palette(
         onSurfaceVariant = Color(0xFFD4C7DE),
     ),
 )
-
-}

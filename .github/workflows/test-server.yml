@@ -36,5 +36,9 @@ jobs:
         run: python tests/verify_numeric_inputs.py
       - name: Patterns verification
         run: python tests/verify_patterns.py
+        env:
+          PYTHONPATH: .
       - name: Relay verification
         run: python tests/verify_relays.py
+        env:
+          PYTHONPATH: .
