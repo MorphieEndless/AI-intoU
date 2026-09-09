@@ -1,0 +1,30 @@
+# Gradle
+.gradle/
+build/
+app/build/
+
+# 本地环境（每台机器不同，绝不入库）
+local.properties
+
+# IDE
+.idea/
+*.iml
+.vscode/
+captures/
+.externalNativeBuild/
+.cxx/
+
+# 签名与密钥（绝不入库）
+*.jks
+*.keystore
+keystore.properties
+
+# APK 产物（由 CI artifact 分发）
+*.apk
+*.aab
+
+# gradle wrapper jar 不入库：CI 在 workflow 里用 curl 从 gradle 官方仓库拉取
+gradle/wrapper/gradle-wrapper.jar
+
+# OS
+.DS_Store
