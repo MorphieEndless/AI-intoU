@@ -8,7 +8,7 @@ import org.junit.Test
 class ThemeTest {
     @Test fun themeDisplayNamesAreUpdated() {
         assertEquals(
-            listOf("浆果红", "雾霾蓝", "青松绿", "琥珀黄", "烟熏紫", "Gemini", "DeepSeek", "ChatGPT", "Claude"),
+            listOf("浆果红", "雾霾蓝", "青松绿", "蜂蜜黄", "烟熏紫", "Gemini", "DeepSeek", "ChatGPT", "Claude"),
             YingtiPalettes.map { it.name }
         )
     }
@@ -18,6 +18,7 @@ class ThemeTest {
     }
 
     @Test fun originalPalettesAreUnchanged() {
+        // 前五套的基础色与主源逐套比对：Yellow 已按需求改为蜂蜜黄，其余保持原值。
         listOf(Wine, Blue, Green, Yellow, Purple).zip(YingtiPalettes).forEach { (before, after) ->
             assertEquals(before.light.primary, after.light.primary)
             assertEquals(before.dark.primary, after.dark.primary)
@@ -29,7 +30,8 @@ class ThemeTest {
     }
 
     @Test fun newPaletteTextHasReadableContrast() {
-        YingtiPalettes.drop(5).forEach { palette ->
+        // 覆盖 Gemini 及其后各套，外加本轮重配色的蜂蜜黄。
+        YingtiPalettes.drop(3).forEach { palette ->
             listOf(palette.light, palette.dark).forEach { s ->
                 listOf(s.onSurface to s.surface, s.onSurfaceVariant to s.surfaceVariant,
                     s.onPrimary to s.primary, s.onPrimaryContainer to s.primaryContainer,
@@ -54,13 +56,33 @@ class ThemeTest {
         }
     }
 
-    @Test fun geminiUsesApprovedPinkAndBlue() {
+    @Test fun geminiUsesIconPinkAndBlue() {
         val p = YingtiPalettes.first { it.key == "gemini" }
-        assertEquals(Color(0xFFDE6B93), p.light.primary)
+        assertEquals(Color(0xFFD9659B), p.light.primary)
         assertEquals(Color(0xFF6F9FD3), p.light.secondary)
         assertEquals(Color(0xFFFAF5F6), p.light.background)
-        assertEquals(Color(0xFFF59CB8), p.dark.primary)
+        assertEquals(Color(0xFFEE9FC4), p.dark.primary)
         assertEquals(Color(0xFF9CC3EF), p.dark.secondary)
+    }
+
+    @Test fun sakuraPetalsAreDistinctAndLightweight() {
+        listOf(
+            Color(0xFF8E354A), Color(0xFF3D6FA8), Color(0xFFEAB308),
+            Color(0xFFD9659B), Color(0xFF000000), Color(0xFFFFFFFF),
+        ).forEach { primary ->
+            val petals = yingtiSakuraPetals(primary)
+            assertEquals(5, petals.size)
+            assertEquals(5, petals.toSet().size)
+            assertEquals(primary, petals[2])
+        }
+    }
+
+    @Test fun sakuraCoreLiftsTowardBacking() {
+        val primary = Color(0xFF8E354A)
+        val light = yingtiSakuraCore(primary, Color(0xFFFFFBF8), dark = false)
+        val dark = yingtiSakuraCore(primary, Color(0xFF241B1D), dark = true)
+        assertTrue("亮色花心应比主色亮", light.luminance() > primary.luminance())
+        assertTrue("暗色花心应比主色亮", dark.luminance() > primary.luminance())
     }
 
     private fun contrast(a: Color, b: Color): Float {
@@ -152,11 +174,11 @@ class ThemeTest {
 
     private val Yellow = palette(
         key = "yellow",
-        name = "琥珀黄",
+        name = "蜂蜜黄",
         light = YingtiPaletteBase(
-            primary = Color(0xFF9A7B2D),
-            onPrimary = Color.White,
-            primaryContainer = Color(0xFFF6E8C6),
+            primary = Color(0xFFEAB308),
+            onPrimary = Color(0xFF4A3806),
+            primaryContainer = Color(0xFFFEF0B3),
             onPrimaryContainer = Color(0xFF4A3A0A),
             secondary = Color(0xFF72694E),
             background = Color(0xFFF8F5F2),
@@ -164,10 +186,10 @@ class ThemeTest {
             surfaceVariant = Color(0xFFEEE8D6),
         ),
         dark = YingtiPaletteBase(
-            primary = Color(0xFFE2C980),
+            primary = Color(0xFFF0CE60),
             onPrimary = Color(0xFF3E3109),
-            primaryContainer = Color(0xFF6B5720),
-            onPrimaryContainer = Color(0xFFF6E8C6),
+            primaryContainer = Color(0xFF7A6425),
+            onPrimaryContainer = Color(0xFFFEF0B3),
             secondary = Color(0xFFC9BC9C),
             background = Color(0xFF1B1710),
             surface = Color(0xFF231F17),

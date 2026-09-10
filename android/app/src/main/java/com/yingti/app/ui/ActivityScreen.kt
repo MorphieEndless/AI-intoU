@@ -10,6 +10,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -29,42 +30,61 @@ fun ActivityScreen(history: ActivityHistory, onClear: () -> Unit) {
         confirmButton = { TextButton(onClick = { onClear(); clear = false }) { Text("清除") } },
         dismissButton = { TextButton(onClick = { clear = false }) { Text("取消") } },
     )
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("日志", style = MaterialTheme.typography.headlineSmall)
-                TextButton(onClick = { clear = true }) { Text("清除本机记录") }
-            }
+    // 页头（标题、热力图、筛选）固定，只有下方日志列表滚动。
+    Column(Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
+        Row(
+            Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("日志", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
+            TextButton(onClick = { clear = true }) { Text("清除本机记录") }
         }
-        item { UsageHeatmap(history.days) }
-        if (history.storageError) item { Text("本地记录读写异常，当前显示可能尚未保存；设备控制不受影响。", color = MaterialTheme.colorScheme.error) }
-        item {
-            Text("最近操作", style = MaterialTheme.typography.titleLarge)
-            Text("仅本机保存最近 500 条；包含本机收到的 AI 控制指令和手机操作。云端未下发的保存、查询等不在此日志中。",
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        UsageHeatmap(history.days)
+        if (history.storageError) {
+            Text(
+                "本地记录写入异常，当前显示可能尚未保存。",
+                Modifier.padding(top = 8.dp),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
         }
-        item {
-            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(selected = source == null, onClick = { source = null }, label = { Text("全部") })
-                OperationSource.entries.forEach { s ->
-                    FilterChip(selected = source == s, onClick = { source = s }, label = { Text(s.label) })
-                }
+        Row(
+            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(vertical = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            FilterChip(selected = source == null, onClick = { source = null }, label = { Text("全部") })
+            OperationSource.entries.forEach { s ->
+                FilterChip(selected = source == s, onClick = { source = s }, label = { Text(s.label) })
             }
         }
         val visible = history.events.filter { source == null || it.source == source }
-        if (visible.isEmpty()) item { Text("暂无操作记录。连接设备后的新操作会显示在这里。") }
-        items(visible, key = { it.id }) { event ->
-            Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
-                Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(event.action, style = MaterialTheme.typography.titleMedium)
-                    Text("${event.source.label} · ${event.status.label}",
-                        color = if (event.status == OperationStatus.FAILED) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(Instant.ofEpochMilli(event.time).atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("MM-dd HH:mm:ss")),
-                        style = MaterialTheme.typography.labelSmall)
-                }
-            }
+        LazyColumn(
+            Modifier.fillMaxWidth().weight(1f),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            contentPadding = PaddingValues(bottom = 16.dp),
+        ) {
+            if (visible.isEmpty()) item { Text("暂无操作记录。连接设备后的新操作会显示在这里。") }
+            items(visible, key = { it.id }) { event -> LogEntry(event) }
         }
-        item { Text("“已提交蓝牙”表示 Android 蓝牙接口接受写入，不代表设备回报了实际动作。", style = MaterialTheme.typography.bodySmall) }
+    }
+}
+
+@Composable
+private fun LogEntry(event: OperationEvent) {
+    Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(event.action, style = MaterialTheme.typography.titleMedium)
+            Text(
+                "${event.source.label} · ${event.status.label}",
+                color = if (event.status == OperationStatus.FAILED) MaterialTheme.colorScheme.error
+                else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                Instant.ofEpochMilli(event.time).atZone(ZoneId.systemDefault())
+                    .format(DateTimeFormatter.ofPattern("MM-dd HH:mm:ss")),
+                style = MaterialTheme.typography.labelSmall,
+            )
+        }
     }
 }
 
@@ -99,14 +119,11 @@ private fun UsageHeatmap(days: Map<String, Int>) {
                     }
                 }
             }
-            Text("$selected · ${days[selected.toString()] ?: 0} 次", style = MaterialTheme.typography.labelMedium)
-            Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                 Text("少", style = MaterialTheme.typography.labelSmall)
                 colors.forEach { color -> Box(Modifier.size(12.dp).background(color, RoundedCornerShape(3.dp))) }
-                Text("多 · 每列一周，从周一到周日", style = MaterialTheme.typography.labelSmall)
+                Text("多 · $selected · ${days[selected.toString()] ?: 0} 次", style = MaterialTheme.typography.labelSmall)
             }
-            Text("显示近半年，保留近一年。本机成功提交的非零控制算 1 次；一段波形只算 1 次。停止、失败、保活与查询不计入。统计不是时长或生理数据，不上传、不导出。",
-                style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant)
         }
     }
 }

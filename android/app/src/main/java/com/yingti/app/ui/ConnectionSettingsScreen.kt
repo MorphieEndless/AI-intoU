@@ -17,7 +17,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ArrowBack
-import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Visibility
@@ -26,6 +25,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -48,7 +48,6 @@ fun ConnectionSettingsScreen(
     onPaletteChange: (String) -> Unit,
     onDevModeChange: (Boolean) -> Unit,
     onCancel: () -> Unit,
-    onTest: (ConnectionConfig, String) -> Unit,
     onSave: (ConnectionConfig, String, Boolean) -> Unit,
     onCopy: (String, String) -> Unit,
 ) {
@@ -68,21 +67,18 @@ fun ConnectionSettingsScreen(
     var username by remember(initialConfig.username) { mutableStateOf(initialConfig.username) }
     var password by remember(initialPassword) { mutableStateOf(initialPassword) }
     var rememberPassword by remember { mutableStateOf(initialPassword.isNotEmpty()) }
-    var mcpPath by remember(initialConfig.mcpPath) { mutableStateOf(initialConfig.mcpPath) }
-    var relayPath by remember(initialConfig.relayPath) { mutableStateOf(initialConfig.relayPath) }
-    var advanced by remember { mutableStateOf(false) }
     var showSecret by remember { mutableStateOf(false) }
-    var pendingSensitiveCopy by remember { mutableStateOf<Pair<String, String>?>(null) }
+    var showJsonPreview by remember { mutableStateOf(false) }
 
     val draft = ConnectionConfig(
         serverBaseUrl = server,
         authMode = authMode,
         token = token,
         username = username,
-        mcpPath = mcpPath,
-        relayPath = relayPath,
+        mcpPath = initialConfig.mcpPath,
+        relayPath = initialConfig.relayPath,
     )
-    val endpoints = remember(server, mcpPath, relayPath) {
+    val endpoints = remember(server, initialConfig.mcpPath, initialConfig.relayPath) {
         runCatching { draft.mcpUrl to draft.websocketUrl }.getOrNull()
     }
     val isHttp = runCatching { draft.usesCleartext }.getOrDefault(server.trim().startsWith("http://", true))
@@ -91,28 +87,12 @@ fun ConnectionSettingsScreen(
         AuthMode.ACCOUNT -> username.isNotBlank() && password.isNotBlank()
     }
 
-    pendingSensitiveCopy?.let { (label, value) ->
-        AlertDialog(
-            onDismissRequest = { pendingSensitiveCopy = null },
-            title = { Text("复制包含凭证的内容？") },
-            text = { Text("$label 中含有完整 Bearer Token。请勿粘贴到公开聊天、Issue 或日志中。") },
-            confirmButton = {
-                Button(onClick = {
-                    onCopy(label, value)
-                    pendingSensitiveCopy = null
-                }) { Text("仍然复制") }
-            },
-            dismissButton = { TextButton(onClick = { pendingSensitiveCopy = null }) { Text("取消") } },
-        )
-    }
-
     Scaffold(
         topBar = {
             Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 14.dp)) {
                 if (canCancel) IconButton(onClick = onCancel) { Icon(Icons.Outlined.ArrowBack, "返回") }
                 Column(Modifier.padding(start = if (canCancel) 4.dp else 12.dp)) {
                     Text("连接设置", style = MaterialTheme.typography.headlineSmall)
-                    Text("单服务器 · 自部署优先", color = MaterialTheme.colorScheme.secondary, style = MaterialTheme.typography.bodySmall)
                 }
             }
         },
@@ -165,7 +145,6 @@ fun ConnectionSettingsScreen(
                         visible = showSecret,
                         onToggleVisibility = { showSecret = !showSecret },
                     )
-                    Text("Token 将使用 Android 加密存储。App 与服务端必须配置同一个 Token。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
                 } else {
                     OutlinedTextField(
                         value = username,
@@ -186,7 +165,26 @@ fun ConnectionSettingsScreen(
                         Checkbox(checked = rememberPassword, onCheckedChange = { rememberPassword = it })
                         Text("记住密码（加密存储，下次自动填充）", style = MaterialTheme.typography.bodySmall)
                     }
-                    Text("密码仅用于本次调用 /auth/login 换取 JWT；勾选后加密保存在本机。服务器签发的 JWT 也会加密保存。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
+                }
+                // 登入：原「保存并启动」，位于记住密码下方，两种认证方式都从这里提交。
+                YingtiPrimaryButton(
+                    onClick = { onSave(draft, password, rememberPassword) },
+                    modifier = Modifier.fillMaxWidth().height(52.dp),
+                    enabled = !loading && formReady,
+                ) {
+                    if (loading) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                    else Text("登入")
+                }
+            }
+
+            status?.let {
+                Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = MaterialTheme.shapes.medium) {
+                    Text(it, Modifier.fillMaxWidth().padding(14.dp), color = MaterialTheme.colorScheme.onPrimaryContainer)
+                }
+            }
+            error?.let {
+                Surface(color = MaterialTheme.colorScheme.errorContainer, shape = MaterialTheme.shapes.medium) {
+                    Text(it, Modifier.fillMaxWidth().padding(14.dp), color = MaterialTheme.colorScheme.onErrorContainer)
                 }
             }
 
@@ -194,7 +192,6 @@ fun ConnectionSettingsScreen(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text("深色模式", style = MaterialTheme.typography.bodyLarge)
-                        Text("主页面顶栏也可直接切换", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
                     }
                     Switch(checked = darkTheme, onCheckedChange = onDarkThemeChange)
                 }
@@ -228,96 +225,60 @@ fun ConnectionSettingsScreen(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text("协议调试入口", style = MaterialTheme.typography.bodyLarge)
-                        Text("主页面显示自定义 HEX 帧", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
                     }
                     Switch(checked = devMode, onCheckedChange = onDevModeChange)
-                }
-                Text(
-                    "默认开启：便于适配其他型号玩具时自定义指令帧。关闭后主页面不再显示协议调试。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.secondary,
-                )
-            }
-
-            SettingsSection("高级路径") {
-                TextButton(onClick = { advanced = !advanced }, contentPadding = PaddingValues(0.dp)) {
-                    Text(if (advanced) "收起高级设置" else "展开高级设置")
-                }
-                if (advanced) {
-                    OutlinedTextField(
-                        value = mcpPath, onValueChange = { mcpPath = it }, modifier = Modifier.fillMaxWidth(),
-                        label = { Text("MCP Path") }, singleLine = true,
-                    )
-                    OutlinedTextField(
-                        value = relayPath, onValueChange = { relayPath = it }, modifier = Modifier.fillMaxWidth(),
-                        label = { Text("Phone Relay Path") }, singleLine = true,
-                    )
-                }
-                endpoints?.let { (mcp, relay) ->
-                    EndpointRow("MCP", mcp) { onCopy("MCP URL", mcp) }
-                    EndpointRow("Relay", relay) { onCopy("Relay URL", relay) }
-                }
-            }
-
-            status?.let {
-                Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = MaterialTheme.shapes.medium) {
-                    Text(it, Modifier.fillMaxWidth().padding(14.dp), color = MaterialTheme.colorScheme.onPrimaryContainer)
-                }
-            }
-            error?.let {
-                Surface(color = MaterialTheme.colorScheme.errorContainer, shape = MaterialTheme.shapes.medium) {
-                    Text(it, Modifier.fillMaxWidth().padding(14.dp), color = MaterialTheme.colorScheme.onErrorContainer)
-                }
-            }
-
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedButton(
-                    onClick = { onTest(draft, password) },
-                    modifier = Modifier.weight(1f).height(52.dp),
-                    enabled = !loading && formReady,
-                ) { Text("测试连接") }
-                YingtiPrimaryButton(
-                    onClick = { onSave(draft, password, rememberPassword) },
-                    modifier = Modifier.weight(1f).height(52.dp),
-                    enabled = !loading && formReady,
-                ) {
-                    if (loading) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                    else Text("保存并启动")
                 }
             }
 
             if (token.isNotBlank() && endpoints != null) {
-                HorizontalDivider(Modifier.padding(top = 4.dp))
-                Text("RikkaHub Remote MCP", style = MaterialTheme.typography.titleMedium)
-                Text("第一版生成 Streamable HTTP 配置。复制完整配置前会再次提醒其中含有凭证。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
-                OutlinedButton(
-                    onClick = { pendingSensitiveCopy = "RikkaHub 配置" to draft.rikkaHubJson() },
-                    modifier = Modifier.fillMaxWidth(),
-                ) { Icon(Icons.Outlined.ContentCopy, null); Spacer(Modifier.width(8.dp)); Text("复制完整 JSON") }
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    OutlinedButton(onClick = { onCopy("MCP URL", draft.mcpUrl) }, modifier = Modifier.weight(1f)) { Text("复制 MCP URL") }
-                    OutlinedButton(
-                        onClick = { pendingSensitiveCopy = "Authorization" to "Bearer ${token.trim()}" },
-                        modifier = Modifier.weight(1f),
-                    ) { Text("复制 Authorization") }
+                SettingsSection("RikkaHub Remote MCP") {
+                    TextButton(
+                        onClick = { showJsonPreview = !showJsonPreview },
+                        contentPadding = PaddingValues(0.dp),
+                    ) {
+                        Text(if (showJsonPreview) "▾ 收起预览" else "▸ 预览完整 JSON")
+                    }
+                    if (showJsonPreview) {
+                        Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = RoundedCornerShape(12.dp)) {
+                            Text(
+                                draft.rikkaHubJson(),
+                                Modifier.fillMaxWidth().heightIn(max = 150.dp)
+                                    .verticalScroll(rememberScrollState()).padding(12.dp),
+                                style = MaterialTheme.typography.bodySmall,
+                                fontFamily = FontFamily.Monospace,
+                            )
+                        }
+                    }
+                    YingtiPrimaryButton(
+                        onClick = { onCopy("RikkaHub 配置", draft.rikkaHubJson()) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("复制完整 JSON") }
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        OutlinedButton(
+                            onClick = { onCopy("MCP URL", draft.mcpUrl) },
+                            modifier = Modifier.weight(1f),
+                        ) { Text("复制 MCP URL") }
+                        OutlinedButton(
+                            onClick = { onCopy("Authorization", "Bearer ${token.trim()}") },
+                            modifier = Modifier.weight(1f),
+                        ) { Text("复制 Authorization") }
+                    }
                 }
             }
+
             SettingsSection("关于") {
-                Text("AI-intoU · 樱趣  ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
-                    style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    "AI-intoU · 樱趣  ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
                 OutlinedButton(
                     onClick = { openProjectPage("https://github.com/MorphieEndless/AI-intoU/releases") },
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text("检查更新") }
-                Text(
-                    "打开 GitHub Releases 手动查看版本。私有仓库需登录有访问权限的 GitHub 账号；尚未发布版本时，页面可能为空。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
                 OutlinedButton(
                     onClick = { openProjectPage("https://github.com/MorphieEndless/AI-intoU") },
                     modifier = Modifier.fillMaxWidth(),
-                ) { Text("作者信息 · MorphieEndless") }
+                ) { Text("作者信息") }
             }
             Spacer(Modifier.height(24.dp))
         }
@@ -360,15 +321,4 @@ private fun SecretField(
         visualTransformation = if (visible) VisualTransformation.None else PasswordVisualTransformation(),
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
     )
-}
-
-@Composable
-private fun EndpointRow(label: String, value: String, onCopy: () -> Unit) {
-    Row(Modifier.fillMaxWidth()) {
-        Column(Modifier.weight(1f)) {
-            Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary)
-            Text(value, style = MaterialTheme.typography.bodySmall)
-        }
-        IconButton(onClick = onCopy) { Icon(Icons.Outlined.ContentCopy, "复制 $label") }
-    }
 }

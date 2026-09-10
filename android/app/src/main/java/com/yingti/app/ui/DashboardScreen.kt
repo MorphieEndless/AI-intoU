@@ -95,7 +95,11 @@ fun DashboardScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(Modifier.weight(1f)) {
-                    Text(stringResource(R.string.app_name), style = MaterialTheme.typography.headlineSmall)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        SakuraLogo(Modifier.size(24.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text(stringResource(R.string.app_name), style = MaterialTheme.typography.headlineSmall)
+                    }
                     Text(
                         server.removePrefix("https://"),
                         style = MaterialTheme.typography.bodySmall,
@@ -190,22 +194,11 @@ fun DashboardScreen(
                 onStopSuction = { onSuction(0.0, suctionMode) },
             )
 
-            state.error?.let {
-                Surface(color = MaterialTheme.colorScheme.errorContainer, shape = RoundedCornerShape(14.dp)) {
-                    Text(it, Modifier.fillMaxWidth().padding(14.dp), color = MaterialTheme.colorScheme.onErrorContainer)
-                }
-            }
-
             if (devMode) {
                 ProtocolDebugCard(lastMessage = state.lastMessage, onSendRaw = onRawFrame)
             }
 
-            Text(
-                "断网、Relay 断开或服务退出时会自动发送停止帧。设备卡右上角红色停止按钮 = 双通道 STOP ALL。",
-                modifier = Modifier.fillMaxWidth().padding(bottom = 18.dp),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.secondary,
-            )
+            Spacer(Modifier.height(8.dp))
         }
     }
 }
@@ -284,11 +277,6 @@ private fun SuctionCard(
             }
 
             if (panel == SuctionPanel.TOY) {
-                Text(
-                    "对应玩具机身档位（1-3 档为持续档；4-6 档为节奏档，对应协议 06/07/08）",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.secondary,
-                )
                 // Restore v0.11.1's three-column, two-row preset grid.
                 toyPresets.chunked(3).forEachIndexed { rowIndex, row ->
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -355,7 +343,6 @@ private fun SuctionCard(
                     steps = 4,
                     onValueChangeFinished = { if (level.roundToInt() == 0) onStopSuction() },
                 )
-                Text("0 档 = 停止；拖到 0 后松手立即停止", style = MaterialTheme.typography.bodySmall)
                 Row(
                     Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(10.dp),

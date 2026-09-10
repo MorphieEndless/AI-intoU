@@ -80,7 +80,7 @@ class MainActivity : ComponentActivity() {
                     Toast.makeText(context, "$label 已复制", Toast.LENGTH_SHORT).show()
                 }
 
-                fun runConnectionTest(config: ConnectionConfig, password: String, save: Boolean, rememberPassword: Boolean = false) {
+                fun saveAndStart(config: ConnectionConfig, password: String, rememberPassword: Boolean) {
                     loading = true
                     connectionStatus = null
                     connectionError = null
@@ -88,18 +88,16 @@ class MainActivity : ComponentActivity() {
                         app.apiClient.testConnection(config, password)
                             .onSuccess { result ->
                                 connectionStatus = result.message
-                                if (save) {
-                                    val wasConfigured = configured
-                                    app.tokenStore.save(result)
-                                    app.tokenStore.savedPassword = if (rememberPassword) password else ""
-                                    configured = true
-                                    screen = AppScreen.DASHBOARD
-                                    if (wasConfigured && bridge.serviceRunning) {
-                                        RelayService.send(context, RelayService.ACTION_RESTART)
-                                    }
+                                val wasConfigured = configured
+                                app.tokenStore.save(result)
+                                app.tokenStore.savedPassword = if (rememberPassword) password else ""
+                                configured = true
+                                screen = AppScreen.DASHBOARD
+                                if (wasConfigured && bridge.serviceRunning) {
+                                    RelayService.send(context, RelayService.ACTION_RESTART)
                                 }
                             }
-                            .onFailure { connectionError = it.message ?: "连接测试失败" }
+                            .onFailure { connectionError = it.message ?: "连接失败" }
                         loading = false
                     }
                 }
@@ -120,8 +118,7 @@ class MainActivity : ComponentActivity() {
                     connectionError = null
                     screen = AppScreen.SETTINGS
                 }
-                AppNavigation(screen, { screen = it }, bridge.serviceRunning,
-                    { RelayService.send(context, RelayService.ACTION_STOP_ALL) }) {
+                AppNavigation(screen, { screen = it }) {
                 when (screen) {
                     AppScreen.LOGS -> ActivityScreen(history, app.history::clear)
                     AppScreen.SETTINGS -> SettingsPages(devMode, configured, bridge.lastMessage,
@@ -153,8 +150,7 @@ class MainActivity : ComponentActivity() {
                             connectionError = null
                             screen = AppScreen.DASHBOARD
                         },
-                        onTest = { config, password -> runConnectionTest(config, password, false) },
-                        onSave = { config, password, rememberPassword -> runConnectionTest(config, password, true, rememberPassword) },
+                        onSave = { config, password, rememberPassword -> saveAndStart(config, password, rememberPassword) },
                         onCopy = ::copyToClipboard,
                     )
                     }
