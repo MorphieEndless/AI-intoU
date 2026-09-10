@@ -300,7 +300,7 @@ async def mcp_endpoint(request: Request):
         return _jsonrpc_result(req_id, {"resources": []})
 
     elif method == "prompts/list":
-        return _jsonrpc_result(req_id, {"prompts": []})
+        return _jsonrpc_result(req_id, {})
 
     elif method.startswith("notifications/"):
         # MCP notifications (e.g. notifications/initialized) are fire-and-forget.
@@ -539,7 +539,7 @@ async def set_safety_config_endpoint(request: Request):
     except Exception:
         return JSONResponse({"error": "Invalid JSON"}, status_code=400)
 
-    overrides = set_safety_config(user["user_id"]], body)
+    overrides = set_safety_config(user["user_id"], body)
     effective = _effective_safety_config(user["user_id"])
 
     # Update the live governor with new config
