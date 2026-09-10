@@ -45,7 +45,7 @@ fun SakuraLogo(modifier: Modifier = Modifier) {
     val scheme = MaterialTheme.colorScheme
     val dark = scheme.surface.luminance() < 0.5f
     val petals = yingtiSakuraPetals(scheme.primary)
-    val core = yingtiSakuraCore(scheme.primary, scheme.surface, dark)
+    val core = yingtiSakuraCore(scheme.primary, dark)
     val petalPaths = remember { SAKURA_PETAL_PATHS.map(::parsePath) }
     val corePaths = remember { SAKURA_CORE_PATHS.map(::parsePath) }
     Canvas(modifier) {

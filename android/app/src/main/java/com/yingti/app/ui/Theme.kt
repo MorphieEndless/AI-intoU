@@ -435,18 +435,32 @@ internal val LocalYingtiPaletteKey = androidx.compose.runtime.staticCompositionL
 /**
  * 樱花五瓣差分色：按素材的深浅节奏从主题主色派生，保持"每片花瓣不同色"的层次。
  * 最深档已改为最浅档（实机验证深色瓣显脏），整体偏向明快。
+ * 纯黑 / 纯白主题（如 ChatGPT）无法向两侧混色，退化为向对比色的灰阶阶梯，避免五瓣塌成一色。
  */
-fun yingtiSakuraPetals(primary: Color): List<Color> = listOf(
-    lerp(primary, Color.Black, 0.16f),
-    lerp(primary, Color.Black, 0.30f),
-    primary,
-    lerp(primary, Color.White, 0.26f),
-    lerp(primary, Color.White, 0.10f),
-)
+fun yingtiSakuraPetals(primary: Color): List<Color> {
+    val lum = primary.luminance()
+    if (lum < 0.06f || lum > 0.94f) {
+        val towards = if (lum < 0.5f) Color.White else Color.Black
+        return listOf(0f, 0.18f, 0.36f, 0.54f, 0.72f).map { lerp(primary, towards, it) }
+    }
+    return listOf(
+        lerp(primary, Color.Black, 0.16f),
+        lerp(primary, Color.Black, 0.30f),
+        primary,
+        lerp(primary, Color.White, 0.26f),
+        lerp(primary, Color.White, 0.10f),
+    )
+}
 
-/** 樱花花心：随主题透出的浅色，亮色偏浅、暗色提亮。 */
-fun yingtiSakuraCore(primary: Color, backing: Color, dark: Boolean): Color =
-    lerp(primary, backing, if (dark) 0.45f else 0.16f)
+/** 樱花花心：与花瓣拉开明度差，保证在图形里看得见；主色极亮时改为压暗。 */
+fun yingtiSakuraCore(primary: Color, dark: Boolean): Color {
+    val lum = primary.luminance()
+    return if (lum > 0.94f) {
+        lerp(primary, Color.Black, 0.35f)
+    } else {
+        lerp(primary, Color.White, if (dark) 0.58f else 0.42f)
+    }
+}
 
 /**
  * 页面渐变背景：Gemini 按图标配色走粉(左上)→蓝(右下)对角双色；

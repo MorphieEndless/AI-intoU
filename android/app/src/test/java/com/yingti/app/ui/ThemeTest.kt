@@ -65,24 +65,38 @@ class ThemeTest {
         assertEquals(Color(0xFF9CC3EF), p.dark.secondary)
     }
 
-    @Test fun sakuraPetalsAreDistinctAndLightweight() {
-        listOf(
-            Color(0xFF8E354A), Color(0xFF3D6FA8), Color(0xFFEAB308),
-            Color(0xFFD9659B), Color(0xFF000000), Color(0xFFFFFFFF),
-        ).forEach { primary ->
-            val petals = yingtiSakuraPetals(primary)
-            assertEquals(5, petals.size)
-            assertEquals(5, petals.toSet().size)
-            assertEquals(primary, petals[2])
+    @Test fun sakuraPetalsStayDistinctAcrossEveryPalette() {
+        // 每一套的亮/暗主色都应有五个互不相同的花瓣色，纯黑白版式也不例外。
+        YingtiPalettes.forEach { p ->
+            listOf(p.light.primary, p.dark.primary).forEach { primary ->
+                val petals = yingtiSakuraPetals(primary)
+                assertEquals(5, petals.size)
+                assertEquals("${p.key} 五瓣应各有深浅", 5, petals.toSet().size)
+            }
         }
     }
 
-    @Test fun sakuraCoreLiftsTowardBacking() {
-        val primary = Color(0xFF8E354A)
-        val light = yingtiSakuraCore(primary, Color(0xFFFFFBF8), dark = false)
-        val dark = yingtiSakuraCore(primary, Color(0xFF241B1D), dark = true)
-        assertTrue("亮色花心应比主色亮", light.luminance() > primary.luminance())
-        assertTrue("暗色花心应比主色亮", dark.luminance() > primary.luminance())
+    @Test fun sakuraPetalsKeepPrimaryAsMidTone() {
+        // 常规彩色主色下，中间那瓣即主题主色本身。
+        listOf(Color(0xFF8E354A), Color(0xFF3D6FA8), Color(0xFFEAB308), Color(0xFFD9659B)).forEach { primary ->
+            assertEquals(primary, yingtiSakuraPetals(primary)[2])
+        }
+    }
+
+    @Test fun sakuraCoreStandsOutFromPrimary() {
+        // 花心若与主色明度接近，在图形里会看不见；纯黑与纯白主色都要成立。
+        listOf(
+            Color(0xFF8E354A), Color(0xFFD9659B), Color(0xFFEAB308),
+            Color(0xFF000000), Color(0xFFFFFFFF),
+        ).forEach { primary ->
+            listOf(false, true).forEach { dark ->
+                val core = yingtiSakuraCore(primary, dark)
+                assertTrue(
+                    "$primary dark=$dark 花心与主色明度差过小",
+                    kotlin.math.abs(core.luminance() - primary.luminance()) > 0.05f,
+                )
+            }
+        }
     }
 
     private fun contrast(a: Color, b: Color): Float {
