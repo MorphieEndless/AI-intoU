@@ -19,6 +19,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import com.yingti.app.R
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -93,7 +95,7 @@ fun DashboardScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(Modifier.weight(1f)) {
-                    Text("樱媞 Bridge", style = MaterialTheme.typography.headlineSmall)
+                    Text(stringResource(R.string.app_name), style = MaterialTheme.typography.headlineSmall)
                     Text(
                         server.removePrefix("https://"),
                         style = MaterialTheme.typography.bodySmall,
@@ -287,24 +289,36 @@ private fun SuctionCard(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.secondary,
                 )
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    toyPresets.forEachIndexed { idx, preset ->
-                        val isSelected = selectedToy == idx
-                        ElevatedButton(
-                            onClick = { onToyPreset(preset) },
-                            modifier = Modifier.weight(1f),
-                            colors = if (isSelected) ButtonDefaults.elevatedButtonColors(
-                                containerColor = MaterialTheme.colorScheme.primaryContainer,
-                                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                            ) else ButtonDefaults.elevatedButtonColors(),
-                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 10.dp),
-                        ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text(preset.label, style = MaterialTheme.typography.titleMedium)
-                                Text(preset.detail, style = MaterialTheme.typography.labelSmall)
+                // Restore v0.11.1's three-column, two-row preset grid.
+                toyPresets.chunked(3).forEachIndexed { rowIndex, row ->
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        row.forEachIndexed { columnIndex, preset ->
+                            val index = rowIndex * 3 + columnIndex
+                            ElevatedButton(
+                                onClick = { onToyPreset(preset) },
+                                modifier = Modifier.weight(1f).heightIn(min = 72.dp),
+                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp),
+                                colors = if (selectedToy == index) ButtonDefaults.elevatedButtonColors(
+                                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                ) else ButtonDefaults.elevatedButtonColors(),
+                            ) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text(
+                                        preset.label,
+                                        style = MaterialTheme.typography.titleLarge,
+                                        maxLines = 1,
+                                    )
+                                    Text(
+                                        preset.detail,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        textAlign = TextAlign.Center,
+                                        maxLines = 2,
+                                        softWrap = true,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.fillMaxWidth(),
+                                    )
+                                }
                             }
                         }
                     }
@@ -314,17 +328,19 @@ private fun SuctionCard(
                 }
             } else {
                 Text("模式", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.secondary)
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    suctionModes.forEach { (m, label) ->
-                        FilterChip(
-                            selected = mode == m,
-                            onClick = { onModeChange(m) },
-                            label = { Text(label, style = MaterialTheme.typography.bodySmall) },
-                            modifier = Modifier.weight(1f),
-                        )
+                // Restore two columns so longer mode names retain their space.
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    suctionModes.chunked(2).forEach { row ->
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            row.forEach { (value, label) ->
+                                FilterChip(
+                                    selected = mode == value,
+                                    onClick = { onModeChange(value) },
+                                    label = { Text(label) },
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
+                        }
                     }
                 }
                 Spacer(Modifier.height(4.dp))

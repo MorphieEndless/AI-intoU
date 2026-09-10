@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">樱媞 Bridge</string>
-    <string name="notification_channel">樱媞连接服务</string>
-    <string name="notification_description">保持蓝牙和远程控制链路在线</string>
+    <string name="app_name">Ai-IntoU</string>
+    <string name="notification_channel">Ai-IntoU connection service</string>
+    <string name="notification_description">Keeps Bluetooth and remote control connected</string>
 </resources>

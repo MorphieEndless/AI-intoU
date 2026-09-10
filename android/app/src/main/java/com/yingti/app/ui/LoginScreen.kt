@@ -9,6 +9,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import com.yingti.app.R
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -30,7 +32,7 @@ fun LoginScreen(
             Modifier.fillMaxSize().padding(horizontal = 28.dp),
             verticalArrangement = Arrangement.Center,
         ) {
-            Text("樱媞 Bridge", style = MaterialTheme.typography.displaySmall)
+            Text(stringResource(R.string.app_name), style = MaterialTheme.typography.displaySmall)
             Spacer(Modifier.height(8.dp))
             Text("一条链路，直达 SX589B", color = MaterialTheme.colorScheme.secondary)
             Spacer(Modifier.height(32.dp))
