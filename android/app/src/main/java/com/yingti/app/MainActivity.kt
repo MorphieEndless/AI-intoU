@@ -13,6 +13,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import com.yingti.app.ui.*
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.yingti.app.auth.ConnectionConfig
@@ -23,7 +25,7 @@ import com.yingti.app.ui.UiPrefs
 import com.yingti.app.ui.YingtiTheme
 import kotlinx.coroutines.launch
 
-enum class AppScreen { DASHBOARD, SETTINGS }
+enum class AppScreen { DASHBOARD, LOGS, SETTINGS }
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -38,7 +40,7 @@ class MainActivity : ComponentActivity() {
                 val scope = rememberCoroutineScope()
                 val bridge by AppState.state.collectAsStateWithLifecycle()
                 var configured by remember { mutableStateOf(app.tokenStore.isConfigured) }
-                var screen by remember { mutableStateOf(if (configured) AppScreen.DASHBOARD else AppScreen.SETTINGS) }
+                var screen by rememberSaveable { mutableStateOf(if (configured) AppScreen.DASHBOARD else AppScreen.SETTINGS) }
                 var loading by remember { mutableStateOf(false) }
                 var connectionStatus by remember { mutableStateOf<String?>(null) }
                 var connectionError by remember { mutableStateOf<String?>(null) }
@@ -109,14 +111,28 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
+                val history by app.history.state.collectAsStateWithLifecycle()
+                fun logout() {
+                    RelayService.send(context, RelayService.ACTION_SHUTDOWN)
+                    app.tokenStore.clearSession()
+                    configured = false
+                    connectionStatus = null
+                    connectionError = null
+                    screen = AppScreen.SETTINGS
+                }
+                AppNavigation(screen, { screen = it }, bridge.serviceRunning,
+                    { RelayService.send(context, RelayService.ACTION_STOP_ALL) }) {
                 when (screen) {
-                    AppScreen.SETTINGS -> ConnectionSettingsScreen(
+                    AppScreen.LOGS -> ActivityScreen(history, app.history::clear)
+                    AppScreen.SETTINGS -> SettingsPages(devMode, configured, bridge.lastMessage,
+                        { RelayService.sendRaw(context, it) }, ::logout) {
+                    ConnectionSettingsScreen(
                         initialConfig = app.tokenStore.currentConfig(),
                         initialPassword = app.tokenStore.savedPassword,
                         loading = loading,
                         status = connectionStatus,
                         error = connectionError,
-                        canCancel = configured,
+                        canCancel = false,
                         darkTheme = darkTheme,
                         paletteKey = paletteKey,
                         devMode = devMode,
@@ -141,11 +157,16 @@ class MainActivity : ComponentActivity() {
                         onSave = { config, password, rememberPassword -> runConnectionTest(config, password, true, rememberPassword) },
                         onCopy = ::copyToClipboard,
                     )
-                    AppScreen.DASHBOARD -> DashboardScreen(
+                    }
+                    AppScreen.DASHBOARD -> ToyPages(configured, { screen = AppScreen.SETTINGS }, library = {
+                        PatternLibraryScreen(app.tokenStore.currentConfig(), bridge.serviceRunning && bridge.bleStatus.contains("已连接"),
+                            app.history, { RelayService.playPattern(context, it) })
+                    }) {
+                    DashboardScreen(
                         state = bridge,
                         server = app.tokenStore.serverBaseUrl,
                         darkTheme = darkTheme,
-                        devMode = devMode,
+                        devMode = false,
                         onToggleTheme = {
                             darkTheme = !darkTheme
                             UiPrefs.setDarkTheme(context, darkTheme)
@@ -162,15 +183,10 @@ class MainActivity : ComponentActivity() {
                             connectionError = null
                             screen = AppScreen.SETTINGS
                         },
-                        onLogout = {
-                            RelayService.send(context, RelayService.ACTION_SHUTDOWN)
-                            app.tokenStore.clearSession()
-                            configured = false
-                            connectionStatus = null
-                            connectionError = null
-                            screen = AppScreen.SETTINGS
-                        },
+                        onLogout = ::logout,
                     )
+                    }
+                }
                 }
             }
         }

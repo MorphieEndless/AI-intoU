@@ -82,7 +82,7 @@ fun DashboardScreen(
     var suctionPanel by remember { mutableStateOf(SuctionPanel.TOY) }
     var suctionMode by remember(state.suctionMode) { mutableIntStateOf(state.suctionMode.coerceIn(1, 8)) }
     var suctionLevel by remember(state.suctionIntensity) {
-        mutableFloatStateOf(state.suctionIntensity.coerceIn(1, 5).toFloat())
+        mutableFloatStateOf(state.suctionIntensity.coerceIn(0, 5).toFloat())
     }
     val selectedToy = toyPresets.indexOfFirst {
         state.suctionIntensity > 0 && it.mode == state.suctionMode && it.level == state.suctionIntensity
@@ -351,9 +351,11 @@ private fun SuctionCard(
                 Slider(
                     value = level,
                     onValueChange = onLevelChange,
-                    valueRange = 1f..5f,
-                    steps = 3,
+                    valueRange = 0f..5f,
+                    steps = 4,
+                    onValueChangeFinished = { if (level.roundToInt() == 0) onStopSuction() },
                 )
+                Text("0 档 = 停止；拖到 0 后松手立即停止", style = MaterialTheme.typography.bodySmall)
                 Row(
                     Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -371,7 +373,7 @@ private fun SuctionCard(
 }
 
 @Composable
-private fun ProtocolDebugCard(lastMessage: String, onSendRaw: (String) -> Unit) {
+internal fun ProtocolDebugCard(lastMessage: String, onSendRaw: (String) -> Unit) {
     var rawInput by remember { mutableStateOf("") }
     var sentConfirm by remember { mutableStateOf(false) }
 

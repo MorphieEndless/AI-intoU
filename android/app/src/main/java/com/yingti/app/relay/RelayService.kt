@@ -1,6 +1,8 @@
 package com.yingti.app.relay
 
 import android.app.*
+import org.json.JSONObject
+import com.yingti.app.history.OperationSource
 import android.content.Context
 import android.content.Intent
 import android.os.IBinder
@@ -29,26 +31,28 @@ class RelayService : Service() {
         wakeLock = (getSystemService(POWER_SERVICE) as PowerManager)
             .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "YingtiBridge::Relay").apply { acquire() }
         ble = BleController(this, scope)
-        dispatcher = CommandDispatcher(ble, scope)
+        dispatcher = CommandDispatcher(ble, scope, (application as YingtiApp).history)
         AppState.update { it.copy(serviceRunning = true, lastMessage = "服务已启动") }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action ?: ACTION_START) {
             ACTION_START -> startBridge()
-            ACTION_SCAN -> ble.scan()
-            ACTION_VIBRATE -> scope.launch { ble.setVibration(intent?.getDoubleExtra(EXTRA_INTENSITY, 0.0) ?: 0.0) }
-            ACTION_SUCTION -> scope.launch {
-                ble.setSuction(intent?.getDoubleExtra(EXTRA_INTENSITY, 0.0) ?: 0.0, intent?.getIntExtra(EXTRA_MODE, 5) ?: 5)
-            }
-            ACTION_RAW -> scope.launch {
-                val hex = intent?.getStringExtra(EXTRA_HEX)
-                if (!hex.isNullOrBlank()) ble.writeRaw(hex)
+            ACTION_SCAN -> local(JSONObject().put("type", "scan"))
+            ACTION_VIBRATE -> local(JSONObject().put("type", "command").put("action", "vibrate")
+                .put("intensity", intent?.getDoubleExtra(EXTRA_INTENSITY, 0.0) ?: 0.0))
+            ACTION_SUCTION -> local(JSONObject().put("type", "command").put("action", "constrict")
+                .put("intensity", intent?.getDoubleExtra(EXTRA_INTENSITY, 0.0) ?: 0.0)
+                .put("mode", intent?.getIntExtra(EXTRA_MODE, 5) ?: 5))
+            ACTION_RAW -> local(JSONObject().put("type", "raw").put("hex", intent?.getStringExtra(EXTRA_HEX).orEmpty()))
+            ACTION_CUSTOM -> {
+                val command = runCatching { JSONObject(intent?.getStringExtra(EXTRA_PATTERN).orEmpty()) }.getOrNull()
+                if (command != null && command.optString("type") == "custom_pattern") local(command)
             }
             ACTION_STOP_ALL -> scope.launch {
-                dispatcher.emergencyStop()
+                dispatcher.dispatch(JSONObject().put("type", "stop"), OperationSource.PHONE)
                 relay?.sendPhoneEmergencyStop()
-                updateNotification("已紧急停止")
+                updateNotification("已请求紧急停止")
             }
             ACTION_RESTART -> scope.launch {
                 dispatcher.emergencyStop()
@@ -56,12 +60,13 @@ class RelayService : Service() {
                 relay = null
                 startBridge()
             }
-            ACTION_SHUTDOWN -> {
-                scope.launch { dispatcher.emergencyStop() }
-                stopSelf()
-            }
+            ACTION_SHUTDOWN -> stopSelf() // onDestroy performs the stop exactly once.
         }
         return START_STICKY
+    }
+
+    private fun local(command: JSONObject) {
+        scope.launch { dispatcher.dispatch(command, OperationSource.PHONE) }
     }
 
     /** Activity/task 消失不等于用户要求关闭桥接；持续连接由前台服务负责。 */
@@ -125,6 +130,8 @@ class RelayService : Service() {
     }
 
     companion object {
+        const val ACTION_CUSTOM = "com.yingti.app.CUSTOM_PATTERN"
+        private const val EXTRA_PATTERN = "pattern_json"
         const val ACTION_START = "com.yingti.app.START"
         const val ACTION_SCAN = "com.yingti.app.SCAN"
         const val ACTION_VIBRATE = "com.yingti.app.VIBRATE"
@@ -144,6 +151,11 @@ class RelayService : Service() {
             intensity?.let { intent.putExtra(EXTRA_INTENSITY, it) }
             mode?.let { intent.putExtra(EXTRA_MODE, it) }
             ContextCompat.startForegroundService(context, intent)
+        }
+
+        fun playPattern(context: Context, command: JSONObject) {
+            ContextCompat.startForegroundService(context, Intent(context, RelayService::class.java)
+                .setAction(ACTION_CUSTOM).putExtra(EXTRA_PATTERN, command.toString()))
         }
 
         fun sendRaw(context: Context, hex: String) {

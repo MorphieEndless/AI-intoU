@@ -1,6 +1,7 @@
 package com.yingti.app
 
 import android.app.Application
+import com.yingti.app.history.ActivityStore
 import com.yingti.app.auth.ApiClient
 import com.yingti.app.auth.TokenStore
 
@@ -10,9 +11,13 @@ class YingtiApp : Application() {
     lateinit var apiClient: ApiClient
         private set
 
+    lateinit var history: ActivityStore
+        private set
+
     override fun onCreate() {
         super.onCreate()
         tokenStore = TokenStore(this)
         apiClient = ApiClient()
+        history = ActivityStore(this)
     }
 }
