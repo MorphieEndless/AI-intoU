@@ -1,27 +1,27 @@
 package com.yingti.app.ui
 
-import androidx.compose.foundation.Image
+import androidx.compose.foundation.Canvas
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.scale
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.luminance
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.graphics.vector.addPathNodes
-import androidx.compose.ui.graphics.vector.rememberVectorPainter
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.vector.PathParser
 
 /**
- * 樱花 logo：取自 sakura-signal 素材的主樱花（五瓣 + 花心 + 中心圆）。
+ * 樱花 logo：取自 sakura-signal 素材的主樱花（五瓣 + 花心）。
  * 五瓣各自取主题派生的一档颜色，还原素材"每片花瓣颜色不同"的层次；花心透出浅色。
  * 图形放平无底，配色随版式与亮暗切换整体位移。
  */
 
-// 素材原始坐标范围 x 120..965 / y 285..1135，用 group 平移对齐 viewport。
-private const val SAKURA_OFFSET_X = -120f
-private const val SAKURA_OFFSET_Y = -285f
+// 素材原始坐标范围，绘制时按此视口等比缩放。
+private const val VIEWPORT_LEFT = 120f
+private const val VIEWPORT_TOP = 285f
+private const val VIEWPORT_SIZE = 845f
 
 private val SAKURA_PETAL_PATHS = listOf(
     "M545 697 C501 629 450 544 424 475 C423 450 440 405 457 386 L565 294 L601 352 L650 304 L718 428 C733 448 735 488 723 521 C674 580 606 643 545 697Z",
@@ -46,24 +46,20 @@ fun SakuraLogo(modifier: Modifier = Modifier) {
     val dark = scheme.surface.luminance() < 0.5f
     val petals = yingtiSakuraPetals(scheme.primary)
     val core = yingtiSakuraCore(scheme.primary, scheme.surface, dark)
-    val vector = remember(petals, core) { buildSakura(petals, core) }
-    Image(painter = rememberVectorPainter(vector), contentDescription = null, modifier = modifier)
-}
-
-private fun buildSakura(petals: List<Color>, core: Color): ImageVector =
-    ImageVector.Builder(
-        name = "YingtiSakura",
-        defaultWidth = 27.dp,
-        defaultHeight = 27.dp,
-        viewportWidth = 845f,
-        viewportHeight = 850f,
-    ).apply {
-        addGroup(translationX = SAKURA_OFFSET_X, translationY = SAKURA_OFFSET_Y) {
-            SAKURA_PETAL_PATHS.forEachIndexed { index, path ->
-                addPath(pathData = addPathNodes(path), fill = SolidColor(petals[index]))
-            }
-            SAKURA_CORE_PATHS.forEach { path ->
-                addPath(pathData = addPathNodes(path), fill = SolidColor(core))
+    val petalPaths = remember { SAKURA_PETAL_PATHS.map(::parsePath) }
+    val corePaths = remember { SAKURA_CORE_PATHS.map(::parsePath) }
+    Canvas(modifier) {
+        val k = size.minDimension / VIEWPORT_SIZE
+        scale(k, k, pivot = Offset.Zero) {
+            translate(-VIEWPORT_LEFT, -VIEWPORT_TOP) {
+                petalPaths.forEachIndexed { index, path ->
+                    drawPath(path, petals[index % petals.size])
+                }
+                corePaths.forEach { path -> drawPath(path, core) }
             }
         }
-    }.build()
+    }
+}
+
+private fun parsePath(pathData: String): Path =
+    PathParser().parsePathString(pathData).toPath()
