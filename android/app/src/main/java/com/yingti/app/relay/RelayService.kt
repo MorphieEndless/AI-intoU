@@ -103,7 +103,7 @@ class RelayService : Service() {
         val stopIntent = PendingIntent.getService(this, 1, Intent(this, RelayService::class.java).setAction(ACTION_STOP_ALL), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_yingti)
-            .setContentTitle("樱媞 Bridge")
+            .setContentTitle(getString(R.string.app_name))
             .setContentText(status)
             .setContentIntent(openIntent)
             .setOngoing(true)

@@ -4,8 +4,8 @@
     android:viewportWidth="1260"
     android:viewportHeight="1283">
     <group
-        android:scaleX="0.6"
-        android:scaleY="0.6"
+        android:scaleX="0.7"
+        android:scaleY="0.7"
         android:pivotX="630"
         android:pivotY="641.5">
         <path android:pathData="M 262.0 106.0 h 757.0 a 145.0 145.0 0 0 1 145.0 145.0 v 757.0 a 145.0 145.0 0 0 1 -145.0 145.0 h -757.0 a 145.0 145.0 0 0 1 -145.0 -145.0 v -757.0 a 145.0 145.0 0 0 1 145.0 -145.0 Z" android:strokeColor="#FF881132" android:strokeWidth="46" />

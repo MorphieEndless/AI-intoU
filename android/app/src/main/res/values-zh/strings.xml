@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">樱趣</string>
+    <string name="notification_channel">樱趣连接服务</string>
+    <string name="notification_description">保持蓝牙和远程控制链路在线</string>
+</resources>
