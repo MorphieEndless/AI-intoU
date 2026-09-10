@@ -23,7 +23,7 @@ jobs:
           bash -n deploy/setup-server.sh
           python -m unittest discover -s deploy/tests -v
       - name: Install dependencies
-        run: python -m pip install -r requirements-server.txt httpx buttplug
+        run: python -m pip install -r requirements-server.txt httpx
       - name: Compile Python sources
         run: python -m compileall -q server tests
       - name: Server verification
@@ -36,9 +36,7 @@ jobs:
         run: python tests/verify_numeric_inputs.py
       - name: Patterns verification
         run: python tests/verify_patterns.py
-        env:
-          PYTHONPATH: .
+      - name: App pattern library API verification
+        run: PYTHONPATH=. python tests/verify_pattern_routes.py
       - name: Relay verification
         run: python tests/verify_relays.py
-        env:
-          PYTHONPATH: .
