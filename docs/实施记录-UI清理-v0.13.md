@@ -35,7 +35,7 @@
   - `colorScheme.background` 置为透明，让各页 Scaffold 透出渐变，不逐页改背景。
 - Gemini 主色由粉改为图标粉 `#D9659B`（暗色 `#EE9FC4`），容器色同步，控件（滑杆、按钮、选中态、底栏、热力图）整体跟随。
 - 琥珀黄改蜂蜜黄：亮色 `#9A7B2D` → `#EAB308`，容器 `#FEF0B3`；暗色主色提亮到 `#F0CE60`。因主色变亮，`onPrimary` 改用深色（#4A3806 / #3E3109）。
-- 新增樱花 logo 组件 `SakuraLogo.kt`：取自 `sakura-signal.svg` 的主樱花路径，五瓣各自取主题派生的一档色（压暗 16% / 30% / 主色 / 提亮 26% / 10%），花心透出浅色；无底色、放平，随版式与亮暗整体位移。
+- 新增樱花 logo 组件 `SakuraLogo.kt`：取自 `sakura-signal.svg` 的主樱花路径，用 `Canvas` + `PathParser` 绘制；五瓣各自取主题派生的一档色（压暗 16% / 30% / 主色 / 提亮 26% / 10%），花心与主色保持可感知明度差；纯黑/纯白版式退化为灰阶阶梯。无底色、放平，随版式与亮暗整体位移。
 
 ## 测试
 
@@ -45,7 +45,19 @@
 
 ## 未做 / 待确认
 
-- 本地无 JDK 与 Android SDK，未编译；Kotlin 语法用词法扫描（括号 / 字符串 / 模板串）核对通过，交叉引用与残留文案均已 grep 验证，仍需 CI 出结果。
-- 未提交远端，未建 PR。
+- 本地无 JDK 与 Android SDK，未编译；Kotlin 语法用词法扫描（括号 / 字符串 / 模板串）核对通过，交叉引用与残留文案均已 grep 验证。
+- 真机未验：樱花 logo、渐变背景、五瓣配色的实际观感仍需装机确认。
 - `LoginScreen.kt` 不在当前导航流内（设置页承担登录），其中的「登录并启动」文案未动。
 - 应用图标（`ic_launcher`）未随樱花 logo 调整。
+
+## 提交与 CI
+
+- 分支 `feat/v013-ui-cleanup`，PR https://github.com/MorphieEndless/AI-intoU/pull/3
+- 11 个文件，+416 / −229，三个提交：
+  1. 主体改动
+  2. 修复 `SakuraLogo` 编译错误（`ImageVector` 的 `addPathNodes` 在 Builder DSL 里解析到 lambda 重载，改用 `Canvas` + `PathParser` 直接绘制）
+  3. 修正樱花配色在极端主题下的退化，并加固单测
+- CI：`Test server` success；`Build APK`（`test` + `Debug APK (test + assemble)` + `Release APK (signed)`）全部 success
+  - 产物：`yingti-bridge-debug-apk` 16.8 MB、`yingti-bridge-release-apk` 11.0 MB
+- 首轮 CI 暴露的两个问题均由本地 Oklab 预演复现并修正：五瓣在纯黑/纯白主色下塌成一色、花心在极亮主色下与花瓣同色消失。单测已改为覆盖全部九套版式的亮暗主色。
+
