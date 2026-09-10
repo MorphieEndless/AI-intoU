@@ -30,6 +30,7 @@ from .auth import (
 from .mcp_tools import TOOLS, HANDLERS, current_user_id
 from .oauth import init_oauth_db
 from .oauth_routes import router as oauth_router
+from .pattern_routes import router as pattern_router
 from .relay_hub import check_ws_ip_limit, release_ws_ip_slot, get_ip_from_headers
 from .session_registry import registry
 from .governor import governor
@@ -77,6 +78,7 @@ app.add_middleware(
 
 # Mount OAuth routes (metadata, registration, authorize, token)
 app.include_router(oauth_router)
+app.include_router(pattern_router)
 
 
 # ════════════════════════════════════════════════════════════════════════
@@ -537,7 +539,7 @@ async def set_safety_config_endpoint(request: Request):
     except Exception:
         return JSONResponse({"error": "Invalid JSON"}, status_code=400)
 
-    overrides = set_safety_config(user["user_id"], body)
+    overrides = set_safety_config(user["user_id"]], body)
     effective = _effective_safety_config(user["user_id"])
 
     # Update the live governor with new config
