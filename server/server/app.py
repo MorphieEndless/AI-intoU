@@ -300,7 +300,7 @@ async def mcp_endpoint(request: Request):
         return _jsonrpc_result(req_id, {"resources": []})
 
     elif method == "prompts/list":
-        return _jsonrpc_result(req_id, {})
+        return _jsonrpc_result(req_id, {"prompts": []})
 
     elif method.startswith("notifications/"):
         # MCP notifications (e.g. notifications/initialized) are fire-and-forget.
