@@ -5,9 +5,10 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.size
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -180,20 +181,10 @@ fun SakuraSplashScreen(
             .background(Color(0xFF141113)),
         contentAlignment = Alignment.Center
     ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(20.dp)
-        ) {
-            SakuraBloomingLogo(
-                progress = progressAnim.value,
-                modifier = Modifier.size(110.dp)
-            )
-            Text(
-                "樱趣",
-                style = MaterialTheme.typography.titleMedium,
-                color = Color(0xFFF7EFF2).copy(alpha = progressAnim.value)
-            )
-        }
+        SakuraBloomingLogo(
+            progress = progressAnim.value,
+            modifier = Modifier.size(96.dp)
+        )
     }
 }
 
