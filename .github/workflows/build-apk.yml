@@ -35,18 +35,11 @@ jobs:
       - name: Set up Gradle (cache)
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Unit tests and assemble debug
-        id: build_debug
-        run: |
-          ./gradlew --no-daemon testDebugUnitTest assembleDebug --stacktrace 2>&1 | tee /tmp/build_log.txt
-        continue-on-error: true
+      - name: Unit tests
+        run: ./gradlew --no-daemon testDebugUnitTest
 
-      - name: Print error details if failed
-        if: steps.build_debug.outcome == 'failure'
-        run: |
-          echo "::error file=build_log.txt::$(tail -n 40 /tmp/build_log.txt | tr '\n' ' ')"
-          tail -n 100 /tmp/build_log.txt
-          exit 1
+      - name: Build debug APK
+        run: ./gradlew --no-daemon assembleDebug
 
       - name: APK checksum
         run: sha256sum app/build/outputs/apk/debug/app-debug.apk
@@ -77,6 +70,7 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      # wrapper jar 不入库，这里拉取官方 8.9.0 的 jar，并给 gradlew 补执行位
       - name: Fetch gradle wrapper jar
         run: |
           mkdir -p gradle/wrapper

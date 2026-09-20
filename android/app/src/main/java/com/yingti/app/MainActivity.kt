@@ -30,4 +30,184 @@ import kotlinx.coroutines.launch
 enum class AppScreen { DASHBOARD, LOGS, SETTINGS }
 
 class MainActivity : ComponentActivity() {
-    override fun onCreate(savedInstanceState: Bundle?) {\n        super.onCreate(savedInstanceState)\n        val app = application as YingtiApp\n        setContent {\n            val context = LocalContext.current\n            var darkTheme by remember { mutableStateOf(UiPrefs.darkTheme(context)) }\n            var paletteKey by remember { mutableStateOf(UiPrefs.paletteKey(context)) }\n            var devMode by remember { mutableStateOf(UiPrefs.devMode(context)) }\n            YingtiTheme(darkTheme = darkTheme, paletteKey = paletteKey) {\n                val scope = rememberCoroutineScope()\n                val bridge by AppState.state.collectAsStateWithLifecycle()\n                var configured by remember { mutableStateOf(app.tokenStore.isConfigured) }\n                var screen by rememberSaveable { mutableStateOf(if (configured) AppScreen.DASHBOARD else AppScreen.SETTINGS) }\n                var loading by remember { mutableStateOf(false) }\n                var connectionStatus by remember { mutableStateOf<String?>(null) }\n                var connectionError by remember { mutableStateOf<String?>(null) }\n                var splashVisible by remember { mutableStateOf(true) }\n\n                val permissionLauncher = rememberLauncherForActivityResult(\n                    ActivityResultContracts.RequestMultiplePermissions()\n                ) { RelayService.send(context, RelayService.ACTION_START) }\n\n                fun requestPermissionsAndStart() {\n                    val permissions = buildList {\n                        if (Build.VERSION.SDK_INT >= 31) {\n                            add(Manifest.permission.BLUETOOTH_SCAN)\n                            add(Manifest.permission.BLUETOOTH_CONNECT)\n                        } else add(Manifest.permission.ACCESS_FINE_LOCATION)\n                        if (Build.VERSION.SDK_INT >= 33) add(Manifest.permission.POST_NOTIFICATIONS)\n                    }\n                    permissionLauncher.launch(permissions.toTypedArray())\n                }\n\n                fun requestBatteryOptimizationExemption(context: Context) {\n                    val pm = context.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager\n                    if (!pm.isIgnoringBatteryOptimizations(context.packageName)) {\n                        runCatching {\n                            context.startActivity(\n                                Intent(\n                                    android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,\n                                    android.net.Uri.parse(\"package:${context.packageName}\"),\n                                )\n                            )\n                        }\n                    }\n                }\n\n                fun copyToClipboard(label: String, value: String) {\n                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager\n                    clipboard.setPrimaryClip(ClipData.newPlainText(label, value))\n                    Toast.makeText(context, \"$label 已复制\", Toast.LENGTH_SHORT).show()\n                }\n\n                fun saveAndStart(config: ConnectionConfig, password: String, rememberPassword: Boolean) {\n                    loading = true\n                    connectionStatus = null\n                    connectionError = null\n                    scope.launch {\n                        app.apiClient.testConnection(config, password)\n                            .onSuccess { result ->\n                                connectionStatus = result.message\n                                val wasConfigured = configured\n                                app.tokenStore.save(result)\n                                app.tokenStore.savedPassword = if (rememberPassword) password else \"\"\n                                configured = true\n                                screen = AppScreen.DASHBOARD\n                                if (wasConfigured && bridge.serviceRunning) {\n                                    RelayService.send(context, RelayService.ACTION_RESTART)\n                                }\n                            }\n                            .onFailure { connectionError = it.message ?: \"连接失败\" }\n                        loading = false\n                    }\n                }\n\n                LaunchedEffect(configured) {\n                    if (configured) {\n                        requestPermissionsAndStart()\n                        requestBatteryOptimizationExemption(context)\n                    }\n                }\n\n                val history by app.history.state.collectAsStateWithLifecycle()\n                fun logout() {\n                    RelayService.send(context, RelayService.ACTION_SHUTDOWN)\n                    app.tokenStore.clearSession()\n                    configured = false\n                    connectionStatus = null\n                    connectionError = null\n                    screen = AppScreen.SETTINGS\n                }\n\n                Box(Modifier.fillMaxSize()) {\n                    AppNavigation(screen, { screen = it }) {\n                        when (screen) {\n                            AppScreen.LOGS -> ActivityScreen(history)\n                            AppScreen.SETTINGS -> SettingsPages(\n                                devMode, configured, bridge.lastMessage,\n                                { RelayService.sendRaw(context, it) }, ::logout\n                            ) {\n                                ConnectionSettingsScreen(\n                                    initialConfig = app.tokenStore.currentConfig(),\n                                    initialPassword = app.tokenStore.savedPassword,\n                                    loading = loading,\n                                    status = connectionStatus,\n                                    error = connectionError,\n                                    canCancel = false,\n                                    darkTheme = darkTheme,\n                                    paletteKey = paletteKey,\n                                    devMode = devMode,\n                                    onDarkThemeChange = {\n                                        darkTheme = it\n                                        UiPrefs.setDarkTheme(context, it)\n                                    },\n                                    onPaletteChange = {\n                                        paletteKey = it\n                                        UiPrefs.setPaletteKey(context, it)\n                                    },\n                                    onDevModeChange = {\n                                        devMode = it\n                                        UiPrefs.setDevMode(context, it)\n                                    },\n                                    onCancel = {\n                                        connectionStatus = null\n                                        connectionError = null\n                                        screen = AppScreen.DASHBOARD\n                                    },\n                                    onSave = { config, password, rememberPassword ->\n                                        saveAndStart(config, password, rememberPassword)\n                                    },\n                                    onCopy = ::copyToClipboard,\n                                    onClearHistory = app.history::clear,\n                                )\n                            }\n                            AppScreen.DASHBOARD -> ToyPages(configured, { screen = AppScreen.SETTINGS }, library = {\n                                PatternLibraryScreen(\n                                    app.tokenStore.currentConfig(),\n                                    bridge.serviceRunning && bridge.bleStatus.contains(\"已连接\"),\n                                    app.history,\n                                    { RelayService.playPattern(context, it) }\n                                )\n                            }) {\n                                DashboardScreen(\n                                    state = bridge,\n                                    server = app.tokenStore.serverBaseUrl,\n                                    darkTheme = darkTheme,\n                                    devMode = false,\n                                    onToggleTheme = {\n                                        darkTheme = !darkTheme\n                                        UiPrefs.setDarkTheme(context, darkTheme)\n                                    },\n                                    onScan = { RelayService.send(context, RelayService.ACTION_SCAN) },\n                                    onVibrate = { RelayService.send(context, RelayService.ACTION_VIBRATE, it) },\n                                    onStop = { RelayService.send(context, RelayService.ACTION_STOP_ALL) },\n                                    onRawFrame = { RelayService.sendRaw(context, it) },\n                                    onSuction = { intensity, mode ->\n                                        RelayService.send(context, RelayService.ACTION_SUCTION, intensity, mode)\n                                    },\n                                    onSettings = {\n                                        connectionStatus = null\n                                        connectionError = null\n                                        screen = AppScreen.SETTINGS\n                                    },\n                                    onLogout = ::logout,\n                                )\n                            }\n                        }\n                    }\n\n                    // 开屏启动过渡动画：顺时针舒展绽放，约 650ms 展开就绪后平滑淡出，消除白屏且不拖延加载\n                    AnimatedVisibility(\n                        visible = splashVisible,\n                        exit = fadeOut(animationSpec = tween(durationMillis = 260))\n                    ) {\n                        SakuraSplashScreen(onFinished = { splashVisible = false })\n                    }\n                }\n            }\n        }\n    }\n}\n
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        val app = application as YingtiApp
+        setContent {
+            val context = LocalContext.current
+            var darkTheme by remember { mutableStateOf(UiPrefs.darkTheme(context)) }
+            var paletteKey by remember { mutableStateOf(UiPrefs.paletteKey(context)) }
+            var devMode by remember { mutableStateOf(UiPrefs.devMode(context)) }
+            YingtiTheme(darkTheme = darkTheme, paletteKey = paletteKey) {
+                val scope = rememberCoroutineScope()
+                val bridge by AppState.state.collectAsStateWithLifecycle()
+                var configured by remember { mutableStateOf(app.tokenStore.isConfigured) }
+                var screen by rememberSaveable { mutableStateOf(if (configured) AppScreen.DASHBOARD else AppScreen.SETTINGS) }
+                var loading by remember { mutableStateOf(false) }
+                var connectionStatus by remember { mutableStateOf<String?>(null) }
+                var connectionError by remember { mutableStateOf<String?>(null) }
+                var splashVisible by remember { mutableStateOf(true) }
+
+                val permissionLauncher = rememberLauncherForActivityResult(
+                    ActivityResultContracts.RequestMultiplePermissions()
+                ) { RelayService.send(context, RelayService.ACTION_START) }
+
+                fun requestPermissionsAndStart() {
+                    val permissions = buildList {
+                        if (Build.VERSION.SDK_INT >= 31) {
+                            add(Manifest.permission.BLUETOOTH_SCAN)
+                            add(Manifest.permission.BLUETOOTH_CONNECT)
+                        } else add(Manifest.permission.ACCESS_FINE_LOCATION)
+                        if (Build.VERSION.SDK_INT >= 33) add(Manifest.permission.POST_NOTIFICATIONS)
+                    }
+                    permissionLauncher.launch(permissions.toTypedArray())
+                }
+
+                fun requestBatteryOptimizationExemption(context: Context) {
+                    val pm = context.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+                    if (!pm.isIgnoringBatteryOptimizations(context.packageName)) {
+                        runCatching {
+                            context.startActivity(
+                                Intent(
+                                    android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                                    android.net.Uri.parse("package:${context.packageName}"),
+                                )
+                            )
+                        }
+                    }
+                }
+
+                fun copyToClipboard(label: String, value: String) {
+                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    clipboard.setPrimaryClip(ClipData.newPlainText(label, value))
+                    Toast.makeText(context, "$label 已复制", Toast.LENGTH_SHORT).show()
+                }
+
+                fun saveAndStart(config: ConnectionConfig, password: String, rememberPassword: Boolean) {
+                    loading = true
+                    connectionStatus = null
+                    connectionError = null
+                    scope.launch {
+                        app.apiClient.testConnection(config, password)
+                            .onSuccess { result ->
+                                connectionStatus = result.message
+                                val wasConfigured = configured
+                                app.tokenStore.save(result)
+                                app.tokenStore.savedPassword = if (rememberPassword) password else ""
+                                configured = true
+                                screen = AppScreen.DASHBOARD
+                                if (wasConfigured && bridge.serviceRunning) {
+                                    RelayService.send(context, RelayService.ACTION_RESTART)
+                                }
+                            }
+                            .onFailure { connectionError = it.message ?: "连接失败" }
+                        loading = false
+                    }
+                }
+
+                LaunchedEffect(configured) {
+                    if (configured) {
+                        requestPermissionsAndStart()
+                        requestBatteryOptimizationExemption(context)
+                    }
+                }
+
+                val history by app.history.state.collectAsStateWithLifecycle()
+                fun logout() {
+                    RelayService.send(context, RelayService.ACTION_SHUTDOWN)
+                    app.tokenStore.clearSession()
+                    configured = false
+                    connectionStatus = null
+                    connectionError = null
+                    screen = AppScreen.SETTINGS
+                }
+
+                Box(Modifier.fillMaxSize()) {
+                    AppNavigation(screen, { screen = it }) {
+                        when (screen) {
+                            AppScreen.LOGS -> ActivityScreen(history)
+                            AppScreen.SETTINGS -> SettingsPages(
+                                devMode, configured, bridge.lastMessage,
+                                { RelayService.sendRaw(context, it) }, ::logout
+                            ) {
+                                ConnectionSettingsScreen(
+                                    initialConfig = app.tokenStore.currentConfig(),
+                                    initialPassword = app.tokenStore.savedPassword,
+                                    loading = loading,
+                                    status = connectionStatus,
+                                    error = connectionError,
+                                    canCancel = false,
+                                    darkTheme = darkTheme,
+                                    paletteKey = paletteKey,
+                                    devMode = devMode,
+                                    onDarkThemeChange = {
+                                        darkTheme = it
+                                        UiPrefs.setDarkTheme(context, it)
+                                    },
+                                    onPaletteChange = {
+                                        paletteKey = it
+                                        UiPrefs.setPaletteKey(context, it)
+                                    },
+                                    onDevModeChange = {
+                                        devMode = it
+                                        UiPrefs.setDevMode(context, it)
+                                    },
+                                    onCancel = {
+                                        connectionStatus = null
+                                        connectionError = null
+                                        screen = AppScreen.DASHBOARD
+                                    },
+                                    onSave = { config, password, rememberPassword ->
+                                        saveAndStart(config, password, rememberPassword)
+                                    },
+                                    onCopy = ::copyToClipboard,
+                                    onClearHistory = app.history::clear,
+                                )
+                            }
+                            AppScreen.DASHBOARD -> ToyPages(configured, { screen = AppScreen.SETTINGS }, library = {
+                                PatternLibraryScreen(
+                                    app.tokenStore.currentConfig(),
+                                    bridge.serviceRunning && bridge.bleStatus.contains("已连接"),
+                                    app.history,
+                                    { RelayService.playPattern(context, it) }
+                                )
+                            }) {
+                                DashboardScreen(
+                                    state = bridge,
+                                    server = app.tokenStore.serverBaseUrl,
+                                    darkTheme = darkTheme,
+                                    devMode = false,
+                                    onToggleTheme = {
+                                        darkTheme = !darkTheme
+                                        UiPrefs.setDarkTheme(context, darkTheme)
+                                    },
+                                    onScan = { RelayService.send(context, RelayService.ACTION_SCAN) },
+                                    onVibrate = { RelayService.send(context, RelayService.ACTION_VIBRATE, it) },
+                                    onStop = { RelayService.send(context, RelayService.ACTION_STOP_ALL) },
+                                    onRawFrame = { RelayService.sendRaw(context, it) },
+                                    onSuction = { intensity, mode ->
+                                        RelayService.send(context, RelayService.ACTION_SUCTION, intensity, mode)
+                                    },
+                                    onSettings = {
+                                        connectionStatus = null
+                                        connectionError = null
+                                        screen = AppScreen.SETTINGS
+                                    },
+                                    onLogout = ::logout,
+                                )
+                            }
+                        }
+                    }
+
+                    // 开屏启动过渡动画：顺时针舒展绽放，约 650ms 展开就绪后平滑淡出，消除白屏且不拖延加载
+                    AnimatedVisibility(
+                        visible = splashVisible,
+                        exit = fadeOut(animationSpec = tween(durationMillis = 260))
+                    ) {
+                        SakuraSplashScreen(onFinished = { splashVisible = false })
+                    }
+                }
+            }
+        }
+    }
+}
