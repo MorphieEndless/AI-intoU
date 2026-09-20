@@ -17,7 +17,7 @@ import sys
 import uuid
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request, Response, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -65,6 +65,9 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Signal Bridge Remote",
     version="1.0.0",
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
     lifespan=lifespan,
 )
 
@@ -391,12 +394,15 @@ async def _handle_phone_ws(ws: WebSocket):
         msg = json.loads(raw)
 
         if msg.get("type") != "phone_auth" or "token" not in msg:
+            await ws.send_json({"type": "auth_error", "message": "First message must be phone_auth"})
             await ws.close(4001, "First message must be phone_auth")
             await ip_tracker.record_failure(ip)
             return
 
         user = verify_token(msg["token"])
         if not user:
+            log.warning(f"[PHONE] Rejecting phone auth: token does not match from {ip}")
+            await ws.send_json({"type": "auth_error", "message": "Bearer Token 错误或无效，请检查 App 设置"})
             await ws.close(4001, "Invalid token")
             await ip_tracker.record_failure(ip)
             return
@@ -446,7 +452,7 @@ async def _handle_phone_ws(ws: WebSocket):
                     governor.record_stop(user_id)
                     log.warning(f"Phone emergency stop: user={user_id}")
                 elif msg_type == "device_list":
-                    await registry.update_devices(user_id, msg.get("devices", []))
+                    await registry.update_devices(user_id, msg.get("devices", []))\
                     log.info(f"Devices updated: user={user_id}, count={len(msg.get('devices', []))}")
 
             except WebSocketDisconnect:
@@ -583,15 +589,4 @@ async def health():
 
 @app.get("/")
 async def root():
-    return {
-        "service": "Signal Bridge Remote",
-        "version": "1.0.0",
-        "endpoints": {
-            "auth": "/auth/register, /auth/login",
-            "oauth": "/.well-known/oauth-authorization-server, /oauth/register, /oauth/authorize, /oauth/token",
-            "mcp": "/mcp (POST, JSON-RPC)",
-            "phone_relay": "/ws/phone (WebSocket)",
-            "safety": "/safety/config (GET, POST), /safety/status (GET)",
-            "health": "/health",
-        },
-    }
+    raise HTTPException(status_code=404, detail="Not Found")
