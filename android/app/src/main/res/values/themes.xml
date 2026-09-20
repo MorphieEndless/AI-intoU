@@ -1,10 +1,8 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
-    <color name="window_background">#141113</color>
     <style name="Theme.YingtiBridge" parent="android:style/Theme.Material.Light.NoActionBar">
         <item name="android:fontFamily">sans</item>
-        <item name="android:windowLightStatusBar">false</item>
-        <item name="android:windowBackground">@color/window_background</item>
-        <item name="android:statusBarColor">#141113</item>
-        <item name="android:navigationBarColor">#141113</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:statusBarColor">#F7F4F1</item>
+        <item name="android:navigationBarColor">#F7F4F1</item>
     </style>
 </resources>
