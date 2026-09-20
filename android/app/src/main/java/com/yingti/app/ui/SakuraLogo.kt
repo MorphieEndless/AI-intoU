@@ -119,13 +119,13 @@ fun SakuraBloomingLogo(
 
     Canvas(modifier) {
         val k = size.minDimension / VIEWPORT_SIZE
-        val scaleFactor = 0.90f + 0.10f * progress
-        val alphaFactor = 0.72f + 0.28f * progress
+        val scaleFactor: Float = 0.90f + 0.10f * progress
+        val alphaFactor: Float = 0.72f + 0.28f * progress
 
         scale(k, k, pivot = Offset.Zero) {
             translate(-VIEWPORT_LEFT, -VIEWPORT_TOP) {
                 UNIT_DRAW_ORDER.forEach { idx ->
-                    val rot = PETAL_OFFSETS[idx] * (1.0f - progress)
+                    val rot: Float = PETAL_OFFSETS[idx] * (1f - progress)
                     rotate(rot, pivot = Offset(CENTER_X, CENTER_Y)) {
                         scale(scaleFactor, scaleFactor, pivot = Offset(CENTER_X, CENTER_Y)) {
                             // 1. 对应花瓣
@@ -178,7 +178,7 @@ fun SakuraSplashScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Color(0xFF141113)),
+            .background(Color(0xFF141113L)),
         contentAlignment = Alignment.Center
     ) {
         SakuraBloomingLogo(
