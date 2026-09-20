@@ -21,23 +21,15 @@ import java.time.format.DateTimeFormatter
 import java.time.temporal.TemporalAdjusters
 
 @Composable
-fun ActivityScreen(history: ActivityHistory, onClear: () -> Unit) {
-    var clear by remember { mutableStateOf(false) }
+fun ActivityScreen(history: ActivityHistory) {
     var source by remember { mutableStateOf<OperationSource?>(null) }
-    if (clear) AlertDialog(
-        onDismissRequest = { clear = false }, title = { Text("清除本机记录？") },
-        text = { Text("将删除全部本地日志和使用统计，无法恢复。不会删除云端波形，也不会停止设备。") },
-        confirmButton = { TextButton(onClick = { onClear(); clear = false }) { Text("清除") } },
-        dismissButton = { TextButton(onClick = { clear = false }) { Text("取消") } },
-    )
     // 页头（标题、热力图、筛选）固定，只有下方日志列表滚动。
     Column(Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
         Row(
             Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("日志", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
-            TextButton(onClick = { clear = true }) { Text("清除本机记录") }
+            Text("日志", style = MaterialTheme.typography.headlineSmall)
         }
         UsageHeatmap(history.days)
         if (history.storageError) {
