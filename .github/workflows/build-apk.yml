@@ -70,6 +70,7 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      # wrapper jar 不入库，这里拉取官方 8.9.0 的 jar，并给 gradlew 补执行位
       - name: Fetch gradle wrapper jar
         run: |
           mkdir -p gradle/wrapper

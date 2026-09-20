@@ -50,8 +50,6 @@ fun PatternLibraryScreen(config: ConnectionConfig, connected: Boolean, history: 
                 Text("波形库", style = MaterialTheme.typography.headlineSmall)
                 TextButton(enabled = !loading, onClick = { scope.launch { load() } }) { Text("刷新") }
             }
-            Text("与 AI 共用当前用户的云端波形。重放由本机执行，切换页面不会中断；删除会同步影响 AI 的波形库。",
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         if (loading) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
         error?.let { message -> item { Text(message, color = MaterialTheme.colorScheme.error) } }
@@ -94,7 +92,6 @@ fun PatternLibraryScreen(config: ConnectionConfig, connected: Boolean, history: 
                     Text(data.optString("description"))
                     Text("${data.optInt("repeat", 1)} 次循环 · 强度系数 ${data.optDouble("intensity_scale", 1.0)}")
                     WaveformPreview(data)
-                    Text("震动（主色） / 吮吸（辅助色）· 横轴为单次循环时间", style = MaterialTheme.typography.bodySmall)
                     val steps = data.optJSONArray("steps")
                     if (steps != null) repeat(steps.length()) { index ->
                         val step = steps.getJSONObject(index)
@@ -109,7 +106,7 @@ fun PatternLibraryScreen(config: ConnectionConfig, connected: Boolean, history: 
         )
         if (confirmPlay) AlertDialog(
             onDismissRequest = { if (!loading) confirmPlay = false }, title = { Text("现在重放？") },
-            text = { Text("将在当前手机连接的设备上重放，替换正在运行的波形。可随时点底栏上方的“全部停止”。") },
+            text = { Text("将在当前手机连接的设备上重放，替换正在运行的波形。") },
             confirmButton = { Button(enabled = !loading && connected, onClick = {
                 scope.launch {
                     loading = true; error = null

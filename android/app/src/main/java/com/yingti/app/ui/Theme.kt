@@ -1,8 +1,14 @@
 package com.yingti.app.ui
 
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
@@ -243,11 +249,11 @@ private val Green = palette(
 
 private val Yellow = palette(
     key = "yellow",
-    name = "琥珀黄",
+    name = "蜂蜜黄",
     light = YingtiPaletteBase(
-        primary = Color(0xFF9A7B2D),
-        onPrimary = Color.White,
-        primaryContainer = Color(0xFFF6E8C6),
+        primary = Color(0xFFEAB308),
+        onPrimary = Color(0xFF4A3806),
+        primaryContainer = Color(0xFFFEF0B3),
         onPrimaryContainer = Color(0xFF4A3A0A),
         secondary = Color(0xFF72694E),
         background = Color(0xFFF8F5F2),
@@ -255,10 +261,10 @@ private val Yellow = palette(
         surfaceVariant = Color(0xFFEEE8D6),
     ),
     dark = YingtiPaletteBase(
-        primary = Color(0xFFE2C980),
+        primary = Color(0xFFF0CE60),
         onPrimary = Color(0xFF3E3109),
-        primaryContainer = Color(0xFF6B5720),
-        onPrimaryContainer = Color(0xFFF6E8C6),
+        primaryContainer = Color(0xFF7A6425),
+        onPrimaryContainer = Color(0xFFFEF0B3),
         secondary = Color(0xFFC9BC9C),
         background = Color(0xFF1B1710),
         surface = Color(0xFF231F17),
@@ -297,9 +303,9 @@ private val Gemini = palette(
     key = "gemini",
     name = "Gemini",
     light = YingtiPaletteBase(
-        primary = Color(0xFFDE6B93),
-        onPrimary = Color(0xFF33252B),
-        primaryContainer = Color(0xFFFCE3EC),
+        primary = Color(0xFFD9659B),
+        onPrimary = Color(0xFF3A1220),
+        primaryContainer = Color(0xFFFCE3EF),
         onPrimaryContainer = Color(0xFF5A1630),
         secondary = Color(0xFF6F9FD3),
         background = Color(0xFFFAF5F6),
@@ -312,9 +318,9 @@ private val Gemini = palette(
         onSecondary = Color(0xFF33252B),
     ),
     dark = YingtiPaletteBase(
-        primary = Color(0xFFF59CB8),
+        primary = Color(0xFFEE9FC4),
         onPrimary = Color(0xFF45222F),
-        primaryContainer = Color(0xFF45222F),
+        primaryContainer = Color(0xFF4A2336),
         onPrimaryContainer = Color(0xFFF6EDF0),
         secondary = Color(0xFF9CC3EF),
         background = Color(0xFF1B1618),
@@ -426,6 +432,84 @@ val YingtiPalettes = listOf(Wine, Blue, Green, Yellow, Purple, Gemini, DeepSeek,
 
 internal val LocalYingtiPaletteKey = androidx.compose.runtime.staticCompositionLocalOf { "wine" }
 
+/**
+ * 樱花五瓣差分色：按素材的深浅节奏从主题主色派生，保持"每片花瓣不同色"的层次。
+ * 最深档已改为最浅档（实机验证深色瓣显脏），整体偏向明快。
+ * 纯黑 / 纯白主题（如 ChatGPT）无法向两侧混色，退化为向对比色的灰阶阶梯，避免五瓣塌成一色。
+ */
+fun yingtiSakuraPetals(primary: Color): List<Color> {
+    val lum = primary.luminance()
+    if (lum < 0.06f || lum > 0.94f) {
+        val towards = if (lum < 0.5f) Color.White else Color.Black
+        return listOf(0f, 0.18f, 0.36f, 0.54f, 0.72f).map { lerp(primary, towards, it) }
+    }
+    return listOf(
+        lerp(primary, Color.Black, 0.16f),
+        lerp(primary, Color.Black, 0.30f),
+        primary,
+        lerp(primary, Color.White, 0.26f),
+        lerp(primary, Color.White, 0.10f),
+    )
+}
+
+/** 樱花花心：与花瓣拉开明度差，保证在图形里看得见；主色极亮时改为压暗。 */
+fun yingtiSakuraCore(primary: Color, dark: Boolean): Color {
+    val lum = primary.luminance()
+    return if (lum > 0.94f) {
+        lerp(primary, Color.Black, 0.35f)
+    } else {
+        lerp(primary, Color.White, if (dark) 0.58f else 0.42f)
+    }
+}
+
+/**
+ * 页面渐变背景：Gemini 按图标配色走粉(左上)→蓝(右下)对角双色；
+ * 其余版式以主题主色/辅色的柔光叠在底色上，避免生硬色块。
+ */
+fun Modifier.yingtiPageBackground(scheme: ColorScheme, paletteKey: String): Modifier = drawWithCache {
+    val w = size.width
+    val h = size.height
+    val dark = scheme.surface.luminance() < 0.5f
+    val span = maxOf(w, h)
+    val glowPrimary = scheme.primary.copy(alpha = if (dark) 0.13f else 0.15f)
+    val glowSecondary = scheme.secondary.copy(alpha = if (dark) 0.11f else 0.13f)
+    val geminiWash = if (paletteKey == "gemini") {
+        Brush.linearGradient(
+            colors = listOf(
+                lerp(scheme.primaryContainer, scheme.background, if (dark) 0.55f else 0.30f),
+                scheme.background,
+                lerp(scheme.secondaryContainer, scheme.background, if (dark) 0.55f else 0.30f),
+            ),
+            start = Offset(0f, 0f),
+            end = Offset(w, h),
+        )
+    } else null
+    onDrawBehind {
+        if (geminiWash != null) drawRect(geminiWash) else drawRect(scheme.background)
+        drawRect(
+            Brush.radialGradient(
+                colors = listOf(glowPrimary, Color.Transparent),
+                center = Offset(w * 0.06f, -h * 0.14f),
+                radius = span * 1.05f,
+            )
+        )
+        drawRect(
+            Brush.radialGradient(
+                colors = listOf(glowSecondary, Color.Transparent),
+                center = Offset(w * 0.92f, -h * 0.10f),
+                radius = span * 0.85f,
+            )
+        )
+        drawRect(
+            Brush.radialGradient(
+                colors = listOf(glowSecondary, Color.Transparent),
+                center = Offset(w, h * 1.05f),
+                radius = span * 0.75f,
+            )
+        )
+    }
+}
+
 @Composable
 fun YingtiTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
@@ -433,11 +517,15 @@ fun YingtiTheme(
     content: @Composable () -> Unit,
 ) {
     val palette = YingtiPalettes.firstOrNull { it.key == paletteKey } ?: Wine
+    val scheme = if (darkTheme) palette.dark else palette.light
+    // 渐变画在主题根容器上；把 background 置为透明，让各页 Scaffold 透出渐变而不必逐个改背景。
+    val transparentBackground = scheme.copy(background = Color.Transparent)
     androidx.compose.runtime.CompositionLocalProvider(LocalYingtiPaletteKey provides palette.key) {
         MaterialTheme(
-            colorScheme = if (darkTheme) palette.dark else palette.light,
+            colorScheme = transparentBackground,
             typography = Typography(),
-            content = content,
-        )
+        ) {
+            Box(Modifier.fillMaxSize().yingtiPageBackground(scheme, palette.key)) { content() }
+        }
     }
 }

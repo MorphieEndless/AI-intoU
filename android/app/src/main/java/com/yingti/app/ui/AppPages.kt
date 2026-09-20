@@ -16,24 +16,24 @@ import androidx.compose.ui.unit.dp
 import com.yingti.app.AppScreen
 
 @Composable
-fun AppNavigation(screen: AppScreen, onScreen: (AppScreen) -> Unit, running: Boolean, onStop: () -> Unit, content: @Composable () -> Unit) {
+fun AppNavigation(screen: AppScreen, onScreen: (AppScreen) -> Unit, content: @Composable () -> Unit) {
     BackHandler(screen != AppScreen.DASHBOARD) { onScreen(AppScreen.DASHBOARD) }
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         bottomBar = {
-            Column {
-                if (running) FilledTonalButton(
-                    onClick = onStop, modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
-                    colors = ButtonDefaults.filledTonalButtonColors(containerColor = MaterialTheme.colorScheme.errorContainer,
-                        contentColor = MaterialTheme.colorScheme.onErrorContainer),
-                ) { Text("全部停止") }
-                NavigationBar {
-                    val tabs = listOf(Triple(AppScreen.DASHBOARD, "玩具", Icons.Outlined.Bluetooth),
-                        Triple(AppScreen.LOGS, "日志", Icons.Outlined.History), Triple(AppScreen.SETTINGS, "设置", Icons.Outlined.Settings))
-                    tabs.forEach { (target, label, icon) ->
-                        NavigationBarItem(selected = screen == target, onClick = { onScreen(target) },
-                            icon = { Icon(icon, null) }, label = { Text(label) })
-                    }
+            NavigationBar {
+                val tabs = listOf(
+                    Triple(AppScreen.DASHBOARD, "玩具", Icons.Outlined.Bluetooth),
+                    Triple(AppScreen.LOGS, "日志", Icons.Outlined.History),
+                    Triple(AppScreen.SETTINGS, "设置", Icons.Outlined.Settings),
+                )
+                tabs.forEach { (target, label, icon) ->
+                    NavigationBarItem(
+                        selected = screen == target,
+                        onClick = { onScreen(target) },
+                        icon = { Icon(icon, null) },
+                        label = { Text(label) },
+                    )
                 }
             }
         },
