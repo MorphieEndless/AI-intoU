@@ -12,7 +12,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.rotate
@@ -55,13 +54,13 @@ private val SAKURA_STAMEN_PATHS_BY_PETAL = listOf(
     "M569 688 L643 665 C654 662 652 652 663 653 C679 653 683 670 676 684 C671 696 662 694 653 692 L572 702Z", // 瓣 4
 )
 
-// 5 块 1/5 扇形花心的起始角度（扫过 72 度）
-private val SAKURA_SECTOR_STARTS_BY_PETAL = listOf(
-    -116f, // 瓣 0: 顶部 [-116°, -44°]
-    172f,  // 瓣 1: 左上 [172°, 244°]
-    100f,  // 瓣 2: 左下 [100°, 172°]
-    28f,   // 瓣 3: 右下 [28°, 100°]
-    -44f,  // 瓣 4: 右上 [-44°, 28°]
+// 5 块 1/5 扇形花心的精确闭合矢量路径（每块 72 度，中心严丝合缝拼成 R=44 的完整圆心）
+private val SAKURA_SECTOR_PATHS_BY_PETAL = listOf(
+    "M 545.0 697.0 L 525.71 657.45 A 44.0 44.0 0 0 1 576.65 666.44 Z", // 瓣 0: [-116°, -44°]
+    "M 545.0 697.0 L 501.43 703.12 A 44.0 44.0 0 0 1 525.71 657.45 Z", // 瓣 1: [172°, 244°]
+    "M 545.0 697.0 L 537.36 740.33 A 44.0 44.0 0 0 1 501.43 703.12 Z", // 瓣 2: [100°, 172°]
+    "M 545.0 697.0 L 583.85 717.66 A 44.0 44.0 0 0 1 537.36 740.33 Z", // 瓣 3: [28°, 100°]
+    "M 545.0 697.0 L 576.65 666.44 A 44.0 44.0 0 0 1 583.85 717.66 Z", // 瓣 4: [-44°, 28°]
 )
 
 // 折叠回瓣 0 位置的角度偏移量
@@ -115,6 +114,7 @@ fun SakuraBloomingLogo(
     val core = yingtiSakuraCore(scheme.primary, dark)
     val petalPaths = remember { SAKURA_PETAL_PATHS.map(::parsePath) }
     val stamenPaths = remember { SAKURA_STAMEN_PATHS_BY_PETAL.map(::parsePath) }
+    val sectorPaths = remember { SAKURA_SECTOR_PATHS_BY_PETAL.map(::parsePath) }
 
     Canvas(modifier) {
         val k = size.minDimension / VIEWPORT_SIZE
@@ -139,14 +139,10 @@ fun SakuraBloomingLogo(
                                 color = core,
                                 alpha = alphaFactor
                             )
-                            // 3. 对应 1/5 花心扇区（拼接中心圆）
-                            drawArc(
+                            // 3. 对应 1/5 花心扇区（矢量闭合路径拼接中心圆）
+                            drawPath(
+                                sectorPaths[idx],
                                 color = core,
-                                startAngle = SAKURA_SECTOR_STARTS_BY_PETAL[idx],
-                                sweepAngle = 72f,
-                                useCenter = true,
-                                topLeft = Offset(CENTER_X - CORE_RADIUS, CENTER_Y - CORE_RADIUS),
-                                size = Size(CORE_RADIUS * 2f, CORE_RADIUS * 2f),
                                 alpha = alphaFactor
                             )
                         }
