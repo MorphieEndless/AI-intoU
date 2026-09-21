@@ -452,8 +452,9 @@ async def _handle_phone_ws(ws: WebSocket):
                     governor.record_stop(user_id)
                     log.warning(f"Phone emergency stop: user={user_id}")
                 elif msg_type == "device_list":
-                    await registry.update_devices(user_id, msg.get("devices", []))\
-                    log.info(f"Devices updated: user={user_id}, count={len(msg.get('devices', []))}")
+                    devices = msg.get("devices", [])
+                    await registry.update_devices(user_id, devices)
+                    log.info(f"Devices updated: user={user_id}, count={len(devices)}")
 
             except WebSocketDisconnect:
                 break
