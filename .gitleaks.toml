@@ -1,0 +1,52 @@
+# AI-intoU 泄露扫描规则（gitleaks v8）
+# 目标：拦住「真实主机地址 / 内部部署路径 / 凭据」三类东西进入仓库或 CI。
+title = "AI-intoU leak scan"
+
+[extend]
+useDefault = true   # 保留 gitleaks 内置的密钥/令牌规则
+
+# ── 1. 公网 IPv4 字面量（云主机源站地址的典型形态）──────────────────────
+[[rules]]
+id = "aiu-public-ipv4"
+description = "Public IPv4 literal — 可能是源站服务器地址"
+regex = '''\b(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\.(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\.(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\.(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\b'''
+
+  [[rules.allowlists]]
+  description = "回环 / 私有 / 保留 / RFC5737 文档地址 / 公共 DNS"
+  regexes = [
+    '''\b(?:0|10|127|192\.168|169\.254|255)\.''',
+    '''\b172\.(?:1[6-9]|2[0-9]|3[01])\.''',
+    '''\b(?:192\.0\.2|198\.51\.100|203\.0\.113)\.''',
+    '''\b(?:1\.1\.1\.1|8\.8\.8\.8|9\.9\.9\.9)\b''',
+  ]
+
+# ── 2. 内部部署绝对路径 / 服务操作 ──────────────────────────────────────
+[[rules]]
+id = "aiu-internal-deploy-path"
+description = "内部部署绝对路径（/opt、/srv、/etc/nginx…）"
+regex = '''(?:/opt|/srv|/etc/nginx|/etc/systemd|/etc/ssl|/etc/fail2ban)/[A-Za-z0-9._/-]{3,}'''
+
+[[rules]]
+id = "aiu-project-service-op"
+description = "项目专属 systemd 服务单元操作（泄露服务名）"
+regex = '''systemctl\s+(?:restart|start|stop|kill|status|enable)\s+(?!docker|caddy|nginx|ufw|fail2ban|sshd)[A-Za-z0-9@._-]{4,}'''
+
+# ── 3. 占位符必须是真的占位符 ───────────────────────────────────────────
+[[rules]]
+id = "aiu-filled-secret-in-example"
+description = ".env / 示例文件里被填了真实密钥"
+regex = '''(?:SB_SECRET_KEY|SB_STATIC_BEARER_TOKEN)\s*=\s*[A-Za-z0-9_+/=-]{16,}'''
+  [[rules.allowlists]]
+  regexes = [
+    '''paste-your-generated-key-here''',
+    '''your-secret-key-here''',
+    '''至少32字符的随机字符串''',
+  ]
+
+# ── 4. 已知内部域名与隧道 ──────────────────────────────────────────────
+[[rules]]
+id = "aiu-internal-hostname"
+description = "内部域名 / 隧道地址残留"
+regex = '''(?i)(?:in2\.[a-z0-9-]+\.(?:top|com|net)|[a-z0-9-]+\.ngrok-free\.app|trycloudflare\.com|[a-z0-9-]+\.example\.top)'''
+  [[rules.allowlists]]
+  regexes = ['''example\.com''', '''your-subdomain''']
