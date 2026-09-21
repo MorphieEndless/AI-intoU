@@ -4,8 +4,8 @@
 # 用法: bash scripts/check-leaks.sh [repo-path]     无参数则扫当前目录
 #
 # 设计原则：
-#   · 失败与提醒分开 —— 「已知的遗留示例地址」只提醒，不阻塞；其余一律失败。
-#   · 白名单只允许 RFC 5737 文档地址与 RFC 1918 私有段，不放行任何真实地址。
+#   · 只有失败，没有豁免 —— 白名单只允许 RFC 5737 文档地址与 RFC 1918 私有段，
+#     不放行任何真实地址，也不保留「已知遗留」这个后门。
 #   · 要让 CI 变绿请改文档，不要往白名单里加真实地址（见 AGENTS.md §4）。
 set -uo pipefail
 cd "${1:-.}"
@@ -20,22 +20,14 @@ OCT='(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])'
 IPV4="\\b${OCT}\\.${OCT}\\.${OCT}\\.${OCT}\\b"
 # RFC 1918 / 回环 / 链路本地 / RFC 5737 / 公共 DNS
 ALLOW_IP='(0\.0\.0\.0|127\.0\.0\.1|192\.168\.|10\.|169\.254\.|192\.0\.2\.|198\.51\.100\.|203\.0\.113\.|172\.(1[6-9]|2[0-9]|3[01])\.|1\.1\.1\.1|8\.8\.8\.8|9\.9\.9\.9)'
-# 已知的遗留示例地址：只提醒不阻塞。全部应在后续文档 PR 里换成 RFC 5737。
-KNOWN_LEGACY='(139\.59\.156\.242|11\.4\.5\.14)'
-# 上游 README 的示例域名（signal-bridge 是该上游项目的本名），同样只提醒不阻塞。
-KNOWN_LEGACY_HOST='signal-bridge\.duckdns\.org'
-
-fail=0; warn=0
+fail=0
 report() { echo "!! [$1] $2"; echo "$3" | head -8; echo; fail=1; }
-notice() { echo "·· [$1] $2"; echo "$3" | head -5; echo; warn=1; }
 section() { echo "=== $1 ==="; }
 
 section "1. 公网 IPv4 字面量"
 raw=$(grep -rnIE "$IPV4" "${EXC[@]}" . 2>/dev/null)
-hits=$(echo "$raw" | grep -vE "$ALLOW_IP" | grep -vE "$KNOWN_LEGACY" | grep -vE '^\s*$')
-legacy=$(echo "$raw" | grep -vE "$ALLOW_IP" | grep -E "$KNOWN_LEGACY")
+hits=$(echo "$raw" | grep -vE "$ALLOW_IP" | grep -vE '^\s*$')
 if [ -n "$hits" ]; then report "public-ipv4" "发现公网 IP——请换成 RFC 5737 文档地址（192.0.2.0/24）" "$hits"; else echo "ok"; fi
-[ -n "$legacy" ] && notice "known-legacy-ip" "遗留示例地址（不阻塞，建议后续替换为 RFC 5737）" "$legacy"
 
 section "2. 内部部署绝对路径"
 hits=$(grep -rnIE '/(opt|srv)/[A-Za-z0-9._/-]{3,}|/etc/(nginx|systemd|ssl|fail2ban)/[A-Za-z0-9._/-]{3,}' "${EXC[@]}" . 2>/dev/null)
@@ -52,12 +44,9 @@ hits=$(grep -rnIE 'SB_SECRET_KEY=[A-Za-z0-9_+/=-]{16,}|SB_STATIC_BEARER_TOKEN=[A
 if [ -n "$hits" ]; then report "credential" "发现疑似真实凭据" "$hits"; else echo "ok"; fi
 
 section "5. 内部域名 / 隧道地址"
-raw=$(grep -rnIE 'example|in2\.[a-z0-9-]+\.(top|com|net)|[a-z0-9-]+\.ngrok-free\.app|trycloudflare\.com|[a-z0-9-]{2,}\.duckdns\.org' "${EXC[@]}" . 2>/dev/null \
-      | grep -vE '(your-subdomain\.duckdns\.org|www\.duckdns\.org)')
-hits=$(echo "$raw" | grep -vE "$KNOWN_LEGACY_HOST" | grep -vE '^\s*$')
-legacy=$(echo "$raw" | grep -E "$KNOWN_LEGACY_HOST")
+hits=$(grep -rnIE 'example|in2\.[a-z0-9-]+\.(top|com|net)|[a-z0-9-]+\.ngrok-free\.app|trycloudflare\.com|[a-z0-9-]{2,}\.duckdns\.org' "${EXC[@]}" . 2>/dev/null \
+       | grep -vE '(your-subdomain\.duckdns\.org|www\.duckdns\.org)' | grep -vE '^\s*$')
 if [ -n "$hits" ]; then report "internal-host" "发现内部域名 / 隧道残留" "$hits"; else echo "ok"; fi
-[ -n "$legacy" ] && notice "known-legacy-host" "上游示例域名（不阻塞，建议后续替换为占位符）" "$legacy"
 
 section "6. 作者本机路径"
 hits=$(grep -rnIE '/(workspace|Users|home)/[A-Za-z0-9._-]+/[A-Za-z0-9._/-]{3,}' "${EXC[@]}" . 2>/dev/null \
@@ -67,7 +56,6 @@ if [ -n "$hits" ]; then report "local-path" "发现作者本机路径" "$hits"; 
 echo
 if [ $fail -eq 0 ]; then
   echo "=== 结论：无阻塞问题 ==="
-  [ $warn -ne 0 ] && echo "    （有 $warn 类提醒项，建议择机清理）"
 else
   echo "=== 结论：有阻塞问题，合并前必须清理 ==="
 fi

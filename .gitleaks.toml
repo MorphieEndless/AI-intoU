@@ -2,7 +2,9 @@
 #
 # 与 scripts/check-leaks.sh 互为补充：
 #   · gitleaks 负责【通用密钥】（内置规则） + 本仓库特有的基础设施信息形态
-#   · check-leaks.sh 负责快速兜底，并把「已知遗留示例地址」以提醒（而非失败）方式呈现
+#   · check-leaks.sh 负责快速兜底
+#
+# 本文件不放行任何真实地址。若要让 CI 变绿，请改文档，不要往 allowlist 里加真实值。
 #
 # 注意：gitleaks 用 Go RE2，不支持前后向断言（(?=)、(?!)、(?<=)）。规则里不得使用。
 title = "AI-intoU leak scan"
@@ -24,13 +26,6 @@ regex = '''\b(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\.(?:25[0-5]|2[0-4][0-
     '''\b(?:192\.0\.2|198\.51\.100|203\.0\.113)\.''',
     '''\b(?:1\.1\.1\.1|8\.8\.8\.8|9\.9\.9\.9)\b''',
   ]
-
-  # 已存在的遗留示例地址：不阻塞 CI，但属于待偿技术债。
-  # 192.0.2.14 来自上游 README（AletheiaVox），192.0.2.14 是本项目早期占位符。
-  # 两者都应在后续文档 PR 中换成 RFC 5737（192.0.2.0/24）。
-  [[rules.allowlists]]
-  description = "已知遗留示例地址（待替换）"
-  regexes = ['''\b139\.59\.156\.242\b''', '''\b11\.4\.5\.14\b''']
 
 # ── 2. 内部部署路径 / 项目专属服务名 ────────────────────────────────────
 [[rules]]
@@ -63,11 +58,10 @@ description = "内部域名 / 隧道 / 动态 DNS 地址残留"
 regex = '''(?i)(?:in2\.[a-z0-9-]+\.(?:top|com|net)|(?:[a-z0-9-]+\.)?example\.[a-z]+|[a-z0-9-]{2,}\.ngrok-free\.app|trycloudflare\.com|[a-z0-9-]{2,}\.duckdns\.org)'''
 
   [[rules.allowlists]]
-  description = "占位符与上游示例"
+  description = "允许的占位符"
   regexes = [
     '''your-subdomain\.duckdns\.org''',
-    '''www\.duckdns\.org''',
-    '''signal-bridge\.duckdns\.org'''
+    '''www\.duckdns\.org'''
   ]
 
 # ── 5. 提交者身份里的 PII ──────────────────────────────────────────────
