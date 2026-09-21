@@ -44,7 +44,7 @@ User 1 ──── 1 SafetyConfig（跟随全局默认 + 个人覆盖）
   （保留单用户场景的易用性，提供迁移路径）。
 
 ### D2 — 每平台一个 AI Token
-每个 AI 平台一个独立可命名 token（如 `claude-desktop`、`rikkahu-phone`），
+每个 AI 平台一个独立可命名 token（如 `claude-desktop`、`rikkahub-phone`），
 可单独撤销。撤销某个 AI 的访问权不影响其他平台，也不需要改密码。
 
 ### D3 — 设备模型：一对一实现，一对多预留

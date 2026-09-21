@@ -1,12 +1,13 @@
 # 02 — 目标架构与工程契约
 
-> 每一轮实现会话（AI 或人类）开工前**必读本文档**。
+> 每一轮实现会话（AI 或人类）开工前**必读本文档**。 
 > 与本文档冲突的代码不允许合入。变更先改文档（ADR），再改代码。
 
 ## 1. 设计铁律
 
 1. **一个身份系统**：全系统只有一套用户与令牌模型（见 §4）。禁止再造
-   平行认证、假用户、未认证后门。sole-phone fallback 永久删除。
+   平行认证、假用户、未认证后门。sole-phone fallback 永久删除，
+   OAuth 模块本期移除（见 01-product.md D4）。
 2. **状态只许有两个家**：持久化状态进数据库（经 SQLAlchemy 模型），
    运行时状态进内存注册表（registry / governor）。不存在第三个地方
    （禁止 JSON 文件存储业务数据、禁止配置文件里塞运行时数据）。
@@ -98,9 +99,9 @@ patterns(
 )                       -- 从 JSON 文件迁入
 
 safety_config( ... 维持现状结构 ... )
-
-oauth_clients / oauth_codes  -- 维持现状，仅 access token 落地为 api_tokens 行
 ```
+
+OAuth 相关表**不再创建**；旧 OAuth 库文件随迁移废弃（见 01-product.md D4）。
 
 Token 本体格式：`aiu_<kind>_<32 位 urlsafe 随机>`。
 只存 `sha256` 哈希与 `prefix`；**完整 token 只在创建时展示一次**。
@@ -126,8 +127,8 @@ Principal(user_id, token_kind, scopes)
 scope 检查：control=发指令 / status=读状态 / config=改安全配置
 ```
 
-被删除的旧机制：静态 Bearer Token、sole-phone fallback、`REQUIRE_MCP_AUTH`。
-MCP session 表增加 TTL（默认 24h，随请求滑动续期）。
+被删除的旧机制：静态 Bearer Token、sole-phone fallback、`REQUIRE_MCP_AUTH`、
+OAuth 全家桶。MCP session 表增加 TTL（默认 24h，随请求滑动续期）。
 
 ## 6. 运行时与协议
 
@@ -180,7 +181,7 @@ CLI 命令集：`create-user` / `reset-password` / `create-token` /
 | --- | --- | --- |
 | M0 | 修复 K1；CI 加 import/compile 冒烟；补行为契约测试（MCP init/tools、WS auth 流） | 现有 verify_* 全绿 + 新冒烟绿 |
 | M1 | SQLAlchemy 模型 + Alembic 初始化 + 旧数据迁移脚本（SQLite 表 + patterns JSON → DB） | 迁移后旧数据完整可读 |
-| M2 | api_tokens 体系 + 唯一认证解析器 + 删除静态 token/fallback + OAuth 适配 + CLI | 三类 kind 互不通婚有测试；旧静态 token 有迁移向导 |
+| M2 | api_tokens 体系 + 唯一认证解析器 + 删除静态 token/fallback + 移除 OAuth 模块 + CLI | 三类 kind 互不通婚有测试；旧静态 token 有迁移向导 |
 | M3 | relay 重构：pydantic WS schema、registry 加 device_id | App 无感知兼容 |
 | M4 | MCP transport 抽出 + session TTL | 客户端无感知兼容 |
 | M5 | 安全与停机加固（§7「做」清单） | SIGTERM 时手机收到 stop_all 有测试 |
@@ -201,3 +202,4 @@ CLI 命令集：`create-user` / `reset-password` / `create-token` /
 | 日期 | 决策 | 理由 |
 | --- | --- | --- |
 | 2026-09-21 | 初版架构（铁律、目录、数据模型、里程碑 M0–M7） | 依据 01-product.md 的 D1–D6 |
+| 2026-09-21 | 移除 OAuth 模块，不再创建相关表；M2 同步调整 | 依据修订后的 D4：不为假想需求付维护成本，等真实用户提需求再以插件回归 |
