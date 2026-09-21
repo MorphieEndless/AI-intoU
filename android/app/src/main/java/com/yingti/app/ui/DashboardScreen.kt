@@ -152,7 +152,7 @@ fun DashboardScreen(
                         }
                     }
                     Spacer(Modifier.height(8.dp))
-                    Text("震动", style = MaterialTheme.typography.titleMedium)
+                    Text("震动", style = MaterialTheme.typography.titleLarge)
                     Row(verticalAlignment = Alignment.Bottom) {
                         Text("${(slider * 10).roundToInt()}", style = MaterialTheme.typography.displayMedium)
                         Text(" / 10 档", modifier = Modifier.padding(bottom = 8.dp), color = MaterialTheme.colorScheme.secondary)
@@ -171,8 +171,16 @@ fun DashboardScreen(
                             color = MaterialTheme.colorScheme.primary,
                         )
                     }
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
                         TextButton(onClick = onScan) { Text("重新扫描") }
+                        TextButton(onClick = {
+                            slider = 0f
+                            onVibrate(0.0)
+                        }) { Text("停止") }
                     }
                 }
             }
@@ -190,8 +198,11 @@ fun DashboardScreen(
                 },
                 onModeChange = { suctionMode = it },
                 onLevelChange = { suctionLevel = it },
-                onApplyFree = { onSuction(suctionLevel / 5.0, suctionMode) },
-                onStopSuction = { onSuction(0.0, suctionMode) },
+                onSuction = onSuction,
+                onStopSuction = {
+                    suctionLevel = 0f
+                    onSuction(0.0, suctionMode)
+                },
             )
 
             if (devMode) {
@@ -251,7 +262,7 @@ private fun SuctionCard(
     onToyPreset: (ToyPreset) -> Unit,
     onModeChange: (Int) -> Unit,
     onLevelChange: (Float) -> Unit,
-    onApplyFree: () -> Unit,
+    onSuction: (Double, Int) -> Unit,
     onStopSuction: () -> Unit,
 ) {
     Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surface, tonalElevation = 2.dp) {
@@ -323,7 +334,13 @@ private fun SuctionCard(
                             row.forEach { (value, label) ->
                                 FilterChip(
                                     selected = mode == value,
-                                    onClick = { onModeChange(value) },
+                                    onClick = {
+                                        onModeChange(value)
+                                        val lvl = level.roundToInt()
+                                        if (lvl > 0) {
+                                            onSuction(lvl / 5.0, value)
+                                        }
+                                    },
                                     label = { Text(label) },
                                     modifier = Modifier.weight(1f),
                                 )
@@ -331,7 +348,6 @@ private fun SuctionCard(
                         }
                     }
                 }
-                Spacer(Modifier.height(4.dp))
                 Row(verticalAlignment = Alignment.Bottom) {
                     Text("${level.roundToInt()}", style = MaterialTheme.typography.displaySmall)
                     Text(" / 5 档", modifier = Modifier.padding(bottom = 6.dp), color = MaterialTheme.colorScheme.secondary)
@@ -341,19 +357,11 @@ private fun SuctionCard(
                     onValueChange = onLevelChange,
                     valueRange = 0f..5f,
                     steps = 4,
-                    onValueChangeFinished = { if (level.roundToInt() == 0) onStopSuction() },
+                    onValueChangeFinished = {
+                        val lvl = level.roundToInt()
+                        if (lvl == 0) onStopSuction() else onSuction(lvl / 5.0, mode)
+                    },
                 )
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    OutlinedButton(onClick = onStopSuction, modifier = Modifier.weight(1f)) {
-                        Text("停止")
-                    }
-                    YingtiPrimaryButton(onClick = onApplyFree, modifier = Modifier.weight(1f)) {
-                        Text("应用")
-                    }
-                }
             }
         }
     }
