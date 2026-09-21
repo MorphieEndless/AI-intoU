@@ -9,6 +9,7 @@ import com.yingti.app.BuildConfig
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -25,8 +26,13 @@ import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.platform.LocalTextToolbar
+import androidx.compose.ui.platform.TextToolbar
+import androidx.compose.ui.platform.TextToolbarStatus
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -75,6 +81,8 @@ fun ConnectionSettingsScreen(
     var showJsonPreview by remember { mutableStateOf(false) }
     var showClearDialog by remember { mutableStateOf(false) }
     var clearConfirmInput by remember { mutableStateOf("") }
+    var showFullAuth by remember { mutableStateOf(false) }
+    var pasteBlocked by remember { mutableStateOf(false) }
 
     val draft = ConnectionConfig(
         serverBaseUrl = server,
@@ -96,9 +104,27 @@ fun ConnectionSettingsScreen(
     val requiredConfirmText = if (token.trim().isNotBlank()) token.trim() else "CONFIRM-DELETE-LOCAL-HISTORY"
     val isConfirmMatched = clearConfirmInput.trim() == requiredConfirmText
 
+    val noPasteToolbar = remember {
+        object : TextToolbar {
+            override val status: TextToolbarStatus
+                get() = TextToolbarStatus.Hidden
+            override fun hide() {}
+            override fun showMenu(
+                rect: Rect,
+                onCopyRequested: (() -> Unit)?,
+                onPasteRequested: (() -> Unit)?,
+                onCutRequested: (() -> Unit)?,
+                selectAll: (() -> Unit)?,
+            ) {}
+        }
+    }
+
     if (showClearDialog) {
         AlertDialog(
-            onDismissRequest = { showClearDialog = false },
+            onDismissRequest = {
+                showClearDialog = false
+                pasteBlocked = false
+            },
             title = { Text("确认清除全部本机记录？", color = MaterialTheme.colorScheme.error) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -107,27 +133,64 @@ fun ConnectionSettingsScreen(
                         style = MaterialTheme.typography.bodyMedium,
                     )
                     Text(
-                        if (token.trim().isNotBlank())
-                            "为防止误触破坏，请输入当前配置的 Token 以确认："
-                        else
-                            "为防止误触破坏，请输入 CONFIRM-DELETE-LOCAL-HISTORY 以确认：",
+                        "为防止误触破坏，请在下方手动输入当前完整 Token 以确认（不可粘贴）：",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error,
                     )
-                    OutlinedTextField(
-                        value = clearConfirmInput,
-                        onValueChange = { clearConfirmInput = it },
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                         modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        placeholder = {
-                            Text(
-                                if (token.trim().isNotBlank()) "粘贴或输入当前完整 Token"
-                                else "CONFIRM-DELETE-LOCAL-HISTORY",
-                                style = MaterialTheme.typography.bodySmall,
-                            )
-                        },
-                        isError = clearConfirmInput.isNotBlank() && !isConfirmMatched,
-                    )
+                    ) {
+                        Text(
+                            text = requiredConfirmText,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState())
+                                .padding(10.dp),
+                            style = MaterialTheme.typography.bodySmall,
+                            fontFamily = FontFamily.Monospace,
+                            softWrap = false,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    CompositionLocalProvider(LocalTextToolbar provides noPasteToolbar) {
+                        OutlinedTextField(
+                            value = clearConfirmInput,
+                            onValueChange = { newText ->
+                                if (newText.length - clearConfirmInput.length > 1) {
+                                    pasteBlocked = true
+                                } else {
+                                    pasteBlocked = false
+                                    clearConfirmInput = newText
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            label = { Text("手动输入完整 Token") },
+                            placeholder = {
+                                Text("不可粘贴，请手动输入", style = MaterialTheme.typography.bodySmall)
+                            },
+                            isError = pasteBlocked || (clearConfirmInput.isNotBlank() && !isConfirmMatched),
+                            supportingText = {
+                                when {
+                                    pasteBlocked -> Text(
+                                        "⚠️ 检测到粘贴操作，已拦截！请手动逐字输入。",
+                                        color = MaterialTheme.colorScheme.error,
+                                    )
+                                    clearConfirmInput.isNotBlank() && !isConfirmMatched -> Text(
+                                        "Token 不一致，请核对上方完整 Token",
+                                        color = MaterialTheme.colorScheme.error,
+                                    )
+                                    isConfirmMatched -> Text(
+                                        "Token 验证通过",
+                                        color = MaterialTheme.colorScheme.primary,
+                                    )
+                                }
+                            },
+                        )
+                    }
                 }
             },
             confirmButton = {
@@ -135,6 +198,7 @@ fun ConnectionSettingsScreen(
                     onClick = {
                         onClearHistory()
                         showClearDialog = false
+                        pasteBlocked = false
                     },
                     enabled = isConfirmMatched,
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
@@ -143,7 +207,10 @@ fun ConnectionSettingsScreen(
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showClearDialog = false }) {
+                TextButton(onClick = {
+                    showClearDialog = false
+                    pasteBlocked = false
+                }) {
                     Text("取消")
                 }
             },
@@ -321,13 +388,17 @@ fun ConnectionSettingsScreen(
                     McpCopyFieldRow(
                         label = "MCP URL",
                         value = draft.mcpUrl,
+                        scrollable = true,
+                        onClick = null,
                         onCopy = { onCopy("MCP URL", draft.mcpUrl) },
                     )
                     val authHeader = "Bearer ${token.trim()}"
                     val maskedAuth = if (token.trim().length > 8) "Bearer ${token.trim().take(4)}••••${token.trim().takeLast(4)}" else "Bearer ••••••••"
                     McpCopyFieldRow(
                         label = "Authorization",
-                        value = maskedAuth,
+                        value = if (showFullAuth) authHeader else maskedAuth,
+                        scrollable = true,
+                        onClick = { showFullAuth = !showFullAuth },
                         onCopy = { onCopy("Authorization", authHeader) },
                     )
                 }
@@ -364,13 +435,14 @@ fun ConnectionSettingsScreen(
                         color = MaterialTheme.colorScheme.error,
                     )
                     Text(
-                        "清除本机记录的操作日志与使用频率统计。此操作无法撤销，不会影响云端波形，也不会停止设备。",
+                        "清除本机记录的操作日志与使用频率统计，此操作无法撤销。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     OutlinedButton(
                         onClick = {
                             clearConfirmInput = ""
+                            pasteBlocked = false
                             showClearDialog = true
                         },
                         colors = ButtonDefaults.outlinedButtonColors(
@@ -393,12 +465,19 @@ fun ConnectionSettingsScreen(
 private fun McpCopyFieldRow(
     label: String,
     value: String,
+    scrollable: Boolean = true,
+    onClick: (() -> Unit)? = null,
     onCopy: () -> Unit,
 ) {
     Surface(
         shape = RoundedCornerShape(14.dp),
         color = MaterialTheme.colorScheme.surfaceContainerLow,
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onCopy),
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(
+                if (onClick != null) Modifier.clickable(onClick = onClick)
+                else Modifier
+            ),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
@@ -412,14 +491,18 @@ private fun McpCopyFieldRow(
                     color = MaterialTheme.colorScheme.secondary,
                 )
                 Spacer(Modifier.height(2.dp))
-                Text(
-                    value,
-                    style = MaterialTheme.typography.bodySmall,
-                    fontFamily = FontFamily.Monospace,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
+                Box(
+                    modifier = if (scrollable) Modifier.horizontalScroll(rememberScrollState()) else Modifier
+                ) {
+                    Text(
+                        text = value,
+                        style = MaterialTheme.typography.bodySmall,
+                        fontFamily = FontFamily.Monospace,
+                        maxLines = 1,
+                        softWrap = false,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                }
             }
             IconButton(
                 onClick = onCopy,
