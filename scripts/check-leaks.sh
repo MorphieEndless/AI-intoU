@@ -13,7 +13,8 @@ cd "${1:-.}"
 EXC=(--exclude-dir=.git --exclude-dir=node_modules --exclude-dir=build
      --exclude-dir=__pycache__ --exclude-dir=.gradle
      --exclude=*.png --exclude=*.jpg --exclude=*.jar --exclude=*.apk --exclude=*.db
-     --exclude=AGENTS.md --exclude=PULL_REQUEST_TEMPLATE.md)
+     --exclude=AGENTS.md --exclude=PULL_REQUEST_TEMPLATE.md
+     --exclude=.gitleaks.toml --exclude=check-leaks.sh)
 
 OCT='(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])'
 IPV4="\\b${OCT}\\.${OCT}\\.${OCT}\\.${OCT}\\b"

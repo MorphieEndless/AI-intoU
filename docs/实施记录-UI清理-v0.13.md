@@ -1,6 +1,6 @@
 # 樱趣 v0.13 实施记录 · UI 去赘与版式重做
 
-本轮把已确认的 HTML 样板落到 Compose 实装。样板：`<LOCAL_WORKDIR>/ui-clean-v013-preview.html`。
+本轮把已确认的 HTML 样板落到 Compose 实装。样板：仓库外的一份本地预览稿（`ui-clean-v013-preview.html`）。
 代码基准：v0.12（`ai-intou-v012/`），本轮成果在 `ai-intou-v013/`。版本号 0.13.0 / 18。
 
 ## 改动清单
