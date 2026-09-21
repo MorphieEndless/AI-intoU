@@ -26,10 +26,10 @@ jobs:
         run: python -m pip install -r requirements-server.txt httpx pytest buttplug
       - name: Compile Python sources
         run: python -m compileall -q server tests
-      - name: Import smoke + behavior contract tests (pytest)
+      - name: Import smoke + behavior contract + data layer tests (pytest)
         # Runs FIRST among server tests: if the app can't be imported,
         # nothing below means anything. The K1 lesson.
-        run: PYTHONPATH=. python -m pytest tests/test_smoke.py tests/test_contract_mcp.py tests/test_contract_ws.py -v
+        run: PYTHONPATH=. python -m pytest tests/ -v
       - name: Server verification
         run: python tests/verify_server.py
       - name: Static Bearer verification
