@@ -48,6 +48,12 @@ server/
 命名统一：代码内全部使用 **AI-intoU**（包名 `app`，MCP serverInfo 改名），
 清除 `Signal Bridge Remote` 残留。
 
+> **迁移现状（2026-09-22，M2a 落地后）**：`app/config.py`、`app/db.py`、`app/models/`、
+> `app/core/`、`app/domain/`、`app/cli.py` 已就位，各自带测试。`api/`、`mcp/`、`relay/`
+> 暂时仍在 legacy `server/` 包内——那是现存应用的实际入口（`uvicorn server.app:app`），
+> 由 M3 / M4 迁出。并存期的依赖方向只有一个：legacy `server/*` 可以 import `app/*`，
+> 反过来不允许；`server/config.py` 只是 `app/config.py` 的别名层，自己不读环境变量。
+
 ## 3. 技术选型
 
 | 层 | 选型 | 理由 |
@@ -185,14 +191,16 @@ CLI 命令集：`create-user` / `reset-password` / `create-token` /
 | --- | --- | --- |
 | M0 | 修复 K1；CI 加 import/compile 冒烟；补行为契约测试（MCP init/tools、WS auth 流） | 现有 verify_* 全绿 + 新冒烟绿 |
 | M1 | SQLAlchemy 模型 + Alembic 初始化 + 旧数据迁移脚本（SQLite 表 + patterns JSON → DB） | 迁移后旧数据完整可读 |
-| M2 | api_tokens 体系 + 唯一认证解析器 + 删除静态 token/fallback + 移除 OAuth 模块 + CLI | 三类 kind 互不通婚有测试；旧静态 token 有迁移向导 |
+| M2a | 身份/令牌内核：`app/config.py`（pydantic-settings）、`app/core/security.py::resolve_principal`、`app/domain/identity.py`、`app/cli.py` | 令牌生成/哈希/撤销/过期解析有测试；CLI 能建账号、签三类 token、自检；**零行为变更**（不接线） |
+| M2b | 接线与删除：接入层改用唯一解析器，删除静态 token / sole-phone fallback / OAuth，`/api/tokens` REST，安卓侧改领 phone token | 三类 kind 互不通婚有测试；旧静态 token 有迁移向导；App 无回归（APK CI 绿） |
 | M3 | relay 重构：pydantic WS schema、registry 加 device_id | App 无感知兼容 |
 | M4 | MCP transport 抽出 + session TTL | 客户端无感知兼容 |
 | M5 | 安全与停机加固（§7「做」清单） | SIGTERM 时手机收到 stop_all 有测试 |
 | M6 | 部署向导 v2 + doctor + DEPLOY.md 重写 | 干净机器 15 分钟跑通 |
 | M7 | （后期）极简 Web 管理页：token 管理 + 在线状态 | 静态页 + 现有 API |
 
-每个里程碑独立可交付、可回滚；M0–M2 是重构主体，M3+ 可在主体稳定后穿插。
+每个里程碑独立可交付、可回滚；M0–M2 是重构主体（M2 拆成内核 M2a / 接线 M2b，
+理由见决策记录），M3+ 可在主体稳定后穿插。
 
 ## 10. 与 AI 协作的实施方式
 
@@ -208,3 +216,6 @@ CLI 命令集：`create-user` / `reset-password` / `create-token` /
 | 2026-09-21 | 初版架构（铁律、目录、数据模型、里程碑 M0–M7） | 依据 01-product.md 的 D1–D6 |
 | 2026-09-21 | 增设设计铁律 8：对外入口不暴露源站，禁止 sslip.io 类域名 | 客户端源码曾把源站 IP 编码进 `*.sslip.io` 域名；该主机名已从历史清除并下线 |
 | 2026-09-21 | 移除 OAuth 模块，不再创建相关表；M2 同步调整 | 依据修订后的 D4：不为假想需求付维护成本，等真实用户提需求再以插件回归 |
+| 2026-09-22 | M2 拆分为 M2a（身份/令牌内核，零行为变更）与 M2b（接线 + 删除旧机制 + 客户端同步） | 内核可以单独评审、单独回滚；删除动作必须与安卓侧同版上线，混在一个 PR 里就无法独立回滚 |
+| 2026-09-22 | WS `/ws/phone` 严格执行 §5（仅 `kind='phone'`），安卓 App 在同一里程碑改为登录后经 `POST /api/tokens` 领取 phone token | 现状 App 的账号模式把会话 JWT 兼作中继凭证；只改服务端会当场打断在用客户端，违反铁律 5。两端同版交付，不引入过渡开关（那会是又一条平行认证路径） |
+| 2026-09-22 | 配置迁入 `app/config.py`（pydantic-settings）；`server/config.py` 降为只读别名层；开发默认库路径统一为 `server/signal_bridge.db` | 落地 §3 技术选型；此前 legacy 默认路径与 M1 的 `alembic/env.py`、`app/db.py` 默认值互相矛盾（真实部署一律显式设置 `SB_DB_PATH`，Dockerfile 与 .env 都是这么做的）。附带的有意变更：非法 `SB_*` 值改为启动即拒，这正是集中校验的意义 |
