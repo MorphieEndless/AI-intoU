@@ -25,7 +25,8 @@
 | 设计文档（现状 / 产品 / 架构） | ✅ 已合并 |
 | M0 — 修复 K1 + CI 冒烟门禁 + 行为契约测试 | ✅ 已合并 |
 | M1 — SQLAlchemy 数据层 + Alembic + 旧数据迁移 | ✅ 已合并 |
-| **M2 — 统一令牌与认证体系** | ⬜ 下一步 |
+| **M2a — 身份/令牌内核**（`app/config` + `core/security` + `domain/identity` + CLI + 测试） | 🟡 PR（零行为变更，可独立回滚） |
+| **M2b — 接线与删除**（静态 token / sole-phone fallback / OAuth 下线 + 安卓领 phone token） | ⬜ 下一步，依赖 M2a 合并 |
 | M3–M7 | 见 `02-architecture.md` §9 |
 
 每个里程碑独立可交付、可回滚。**不要跳过里程碑顺序**：M3+ 依赖 M2 的认证解析器。
@@ -68,7 +69,14 @@ PYTHONPATH=. python tests/verify_relays.py
 
 # 3) 数据层工具（迁移演练，零副作用）
 python -m scripts.migrate_legacy --dry-run
+
+# 4) 运维 CLI 自检（账号 / 令牌 / 迁移版本；默认读 SB_DB_PATH，可用 --db 指定）
+python -m app.cli doctor
 ```
+
+`app.cli doctor` 是只读体检，失败时退出码 1（缺 `SB_SECRET_KEY`、库没迁移、
+没有 owner 账号都会 FAIL）。迁移库用 `create-user` / `create-token` 等写命令即可，
+它们会先把 schema 升到 head。
 
 验证记录**不要**写实例地址、路径或单元名——按 `AGENTS.md` §2 的模板写成环境无关措辞。
 
@@ -101,6 +109,8 @@ git hash-object server/app/db.py server/scripts/migrate_legacy.py ...
 - **CI 的 pytest 步骤跑 `tests/` 全目录**；`verify_*.py` 是独立脚本，不被 pytest 收集。
 - **生产与仓库不同步**：本仓库的 `main` 不保证等于任何人的线上部署。
   任何“线上是怎么跑的”结论都必须实地确认，不要从 README 或本手册推断。
+- **两个包并存**（M2a–M4）：新增代码进 `app/`，legacy `server/*` 只允许 import `app/*`。
+  `server/config.py` 是 `app/config.py` 的别名层，改配置只改一处。
 
 ---
 
