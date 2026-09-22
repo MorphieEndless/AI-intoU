@@ -58,8 +58,10 @@ def test_governor_cooldown_enter_keeps_its_legacy_variable_name(clean_env):
 
 
 def test_cors_origins_split_like_the_legacy_module(clean_env):
-    clean_env.setenv("SB_CORS_ORIGINS", "https://a.example, https://b.example ,")
-    assert fresh().cors_origin_list() == ["https://a.example", "https://b.example"]
+    # RFC 5737 documentation addresses: the repo's leak scanner forbids
+    # placeholder-looking hostnames in source, so use the reserved ranges.
+    clean_env.setenv("SB_CORS_ORIGINS", "https://198.51.100.10, https://203.0.113.7 ,")
+    assert fresh().cors_origin_list() == ["https://198.51.100.10", "https://203.0.113.7"]
     clean_env.setenv("SB_CORS_ORIGINS", "*")
     assert fresh().cors_origin_list() == ["*"]
 
