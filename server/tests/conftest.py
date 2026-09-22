@@ -8,7 +8,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-os.environ.setdefault("SB_SECRET_KEY", "test-secret-key-for-pytest-only")
+os.environ.setdefault("SB_SECRET_KEY", "test-secret-key-for-pytest-only-0123456789abcdef")
 os.environ.setdefault(
     "SB_STATIC_BEARER_TOKEN",
     "static-test-token-that-is-at-least-32-characters",
