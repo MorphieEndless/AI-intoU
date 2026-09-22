@@ -2,6 +2,9 @@
 
 > 本文件对该仓库的所有自动化代理（Kimi、GLM、Codex、Claude Code、Cursor、Copilot…）
 > 以及人类协作者同时生效。**开工前必读**。与本文冲突的操作直接视为错误。
+>
+> **操作层面的命令与流程**（验证命令、推送完整性校验、已知坑、交接提示词）见
+> [`docs/AGENT-WORKFLOW.md`](docs/AGENT-WORKFLOW.md)。本文件管红线与规范，那份管怎么干活。
 
 ---
 
