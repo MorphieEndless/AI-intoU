@@ -58,5 +58,5 @@ GOVERNOR_COOLDOWN_DURATION = settings.GOVERNOR_COOLDOWN_DURATION
 # ── Pattern library ─────────────────────────────────────────────────────
 PATTERNS_DIR = settings.PATTERNS_DIR
 
-# ── Database ───────────────────────────────────────────────────────────
+# ── Database ────────────────────────────────────────────────────────────
 DB_PATH = settings.DB_PATH
