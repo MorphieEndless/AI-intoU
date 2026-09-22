@@ -574,7 +574,7 @@ async def relay_loop(server_url, token, intiface_url):
 
 def main():
     parser = argparse.ArgumentParser(description="Signal Bridge Termux Relay")
-    parser.add_argument("--server", required=True, help="VPS WebSocket URL，例如 wss://your-server.example.com/ws/phone")
+    parser.add_argument("--server", default="wss://your-server.example.com/ws/phone", help="WebSocket URL of your Signal Bridge server (e.g. wss://your-server.example.com/ws/phone)")
     parser.add_argument("--token", default=os.environ.get("SB_TOKEN"), help="JWT auth token (or set SB_TOKEN env var)")
     parser.add_argument("--intiface", default="ws://127.0.0.1:12345", help="Intiface Central WebSocket URL")
     args = parser.parse_args()

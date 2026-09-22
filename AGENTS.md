@@ -1,113 +1,111 @@
-# AGENTS.md — 给所有 AI 编码代理的作业规范
+# AGENTS.md — 接手本仓库的 AI Agent 作业手册
 
-> 本文件对该仓库的所有自动化代理（Kimi、GLM、Codex、Claude Code、Cursor、Copilot…）
-> 以及人类协作者同时生效。**开工前必读**。与本文冲突的操作直接视为错误。
-
----
-
-## 0. 四条不可越过的红线
-
-| # | 红线 | 说明 |
-| --- | --- | --- |
-| **R1** | **不得把真实基础设施信息写进仓库或 GitHub 的任何文本框** | 包括但不限于：公网 IP、源站地址、真实域名、隧道地址（ngrok / Cloudflare TryCloudflare）、云服务商实例名、SSH 端口、DNS 记录。 |
-| **R2** | **不得把真实凭据写进仓库或 GitHub 的任何文本框** | 包括但不限于：`.env` 实际值、Bearer Token、JWT、API Key、私钥、keystore 口令、数据库路径中的账号。 |
-| **R3** | **不得把部署机器与本机工作区的绝对路径写进仓库或 GitHub 的任何文本框** | 例如 `/opt/<project>`、`/etc/nginx/conf.d/<你的域名>.conf`、`/workspace/<目录>`、`/home/<用户>`。 |
-| **R4** | **不得使用会把真实 IP 编码进域名的公开服务** | `sslip.io` / `nip.io` / `xip.io` / `traefik.me` 这类通配 DNS 会把 IP 直接写进域名（如 `app.1-2-3-4.sslip.io`），**任何人反解即得源站 IP**，等于把源站地址公开。对外服务必须使用**自有域名 + CDN / 反向代理**隐藏源站。 |
-
-> ⚠️ **R1–R4 对私有仓库同样生效，没有例外。**
->
-> 「反正是私有库」不是理由：
-> - 私有仓库随时可以转公开、可以被 fork、可以邀请协作方——每多一个持有者就多一份泄露面；
-> - 私有仓库的 `refs/pull/*` 快照由 GitHub 底层持有，**不可强推、不可删除**，写进去就是永久；
-> - 2026-09-21 的实际事故中，正是「私有库随便写」把本不该写进去的内容长期留在了历史里。
->
-> 判断标准只有一条：**这段文字如果明天出现在公网上，你能不能接受？** 不能，就别写进去。
-
-**「GitHub 的任何文本框」= 提交信息、PR 标题、PR 描述、Issue 正文与评论、Review 评论、
-代码注释、分支名、Release Note、Actions 步骤名。** 审计报告类内容也不例外。
-
-> **写反面示例时同样适用。** 本文件初版在「错误示范」里把真实地址原样抄了一遍——
-> 那就等于又泄露了一次。反面示例一律用占位符。
+> 这份文件写给**下一个 Agent**。人类读者请看 `README.md` 与 `docs/redesign/`。
+> 最后更新：2026-09-21
 
 ---
 
-## 1. 为什么需要这篇文件
+## 0. 开工前必读（顺序不要变）
 
-2026-09-21，本仓库发生过三次真实的同类事故：
+1. `docs/redesign/02-architecture.md` —— **设计宪法**。§1 的设计铁律是硬约束，违反即视为错误交付。
+2. `docs/redesign/01-product.md` —— **D1–D6 已锁定决策**。不要重新论证已经定过的事。
+3. `docs/redesign/00-current-state.md` —— 重构前的现状与 K1–K9 问题清单（理解“为什么这么设计”）。
+4. 本文档 §2 硬规则。
 
-1. **PR 描述泄露源站 IP**：两个 PR（#5、#6）在「验证记录」一节里写了
-   `（在 <源站IP> 上按 CI 同版依赖实测）`，并在正文里写了生产部署绝对路径。
-2. **内部交接文档被提交入库**：一份含源站 IP、真实域名、全套生产路径、
-   管理员账号名的红队演练交接文档，被 `git add` 进了一个本地提交。
-   该提交尚未推送，但它躺在本地 main 上——一次 `git push --all` 或 `--force` 即可公开。
-3. **对外域名把源站 IP 编码了进去**：曾用 `<应用名>.1-2-3-4.sslip.io` 这类域名对外提供服务。
-   通配 DNS 把 IP 写进了域名本身，任何人反解即得源站地址；而这个地址又随客户端源码
-   一起被分发了出去。该主机名已下线、历史已清理，对外入口改用自有域名 + CDN。
+## 1. 项目现状（截至 2026-09-21）
 
-三次都不是「能力不够」，是**没有红线**。所以有了 R1–R4。
+- **阶段**：设计文档已定稿合并 → M0（修复 K1 + 测试门禁）已合并 → M1（数据层）待合并 → 下一步 M2。
+- **里程碑表**：`docs/redesign/02-architecture.md` §9，每个里程碑独立可交付、可回滚。
+- **重要事实**：main 曾经因为一个行尾反斜杠而完全无法 import（K1）；**生产环境跑的是另一份独立 checkout**，其代码路径与 monorepo 并不同步。任何“生产也这么改”的假设都不成立，改动前先确认目标目录。
 
----
+## 2. 硬规则（违反即视为错误交付）
 
-## 2. 写验证记录的正确姿势
+1. **材料卫生**：仓库文件、PR 标题/描述、commit message、代码注释里**永远不要出现**真实 IP、域名、Token、密钥、服务器路径、账号名。验证记录统一写“在专用验证机上按 CI 同版依赖实测”。生产环境细节只存在于项目所有者手上的交接材料，**不进门（仓库）**。
+2. **文档先行**：任何与 `02-architecture.md` 冲突的实现，先改文档（写明理由），再改代码。不得不偏离时在对应文档的“决策记录”追加 ADR。
+3. **测试即契约**：每个里程碑先写验收测试。验收标准是**测试全绿**，不是“看起来能跑”。
+4. **行为兼容**：Android App 与 MCP 客户端的既有协议不破坏，除非里程碑明确列出并有 ADR。
+5. **不要重新引入**（这些是被明确删除的）：静态 Bearer Token、sole-phone fallback、OAuth 模块、用 JSON 文件存业务数据、`/docs` 与 `/openapi.json` 端点。出处见 `01-product.md` D1/D4/D5 与 `00-current-state.md` K2。
 
-**错误**（禁止）：
+## 3. 标准工作流
 
-```markdown
-## 验证记录（在 <源站IP> 上按 CI 同版依赖实测）
-- 生产 `/opt/<项目目录>` 的同名文件是完好的
-- `systemctl kill -s SIGKILL <服务单元>` 后重启
-```
+1. 从 `main` 拉分支：`feat/m<里程碑>-<主题>` 或 `fix/<主题>`。
+2. 读 `02-architecture.md` 对应章节 + 本次里程碑的验收标准。
+3. **先写测试，再写实现**，迭代到全绿。
+4. **在真机验证**（见 §4）。不要试图在临时沙箱里搭环境——版本锁定、路径行为与生产不一致，会得出错误结论。
+5. 推送 → 做完整性校验（§5）→ 开 PR（base=`main`）→ PR 描述附验证记录（**已脱敏**）。
 
-**正确**（照抄这个模板）：
-
-```markdown
-## 验证记录（生产环境，CI 同版依赖）
-- pytest：25/25 passed
-- 既有回归：verify_* × 7 全部 exit 0
-- 部署提示：在本仓库部署目录执行 `git pull` 后重启自己的服务单元
-```
-
-要表达「实测过」时，用**环境无关**的措辞：`生产环境` / `目标服务器` / `部署实例` /
-`源站`。要表达路径时，用**相对路径**或占位符：`<部署目录>` / `./server` / `$APP_DIR`。
-
----
-
-## 3. 交接文档 / 审计报告 / 红队记录怎么放
-
-这类文档**默认不进仓库**。它们天然含有 R1–R4 四类信息。
-
-- 放在仓库**之外**：`~/handoffs-内部资料/`、本地笔记库、私密 Git 仓库。
-- 若确实需要版本化：放**独立私有仓库**，且仓库名与项目名不做关联。
-- 若必须进本仓库：先做**脱敏改写**——IP 换 `192.0.2.x`（RFC 5737）、
-  域名换 `example.com`、路径换 `<部署目录>`、账号名换 `<owner>`，
-  脱敏之后不要在文件里留「原件另存何处」之类的提示——那等于替读者指路。
-
----
-
-## 4. 提交前必须自查
+## 4. 验证（必须做，命令照抄）
 
 ```bash
-bash scripts/check-leaks.sh                                        # 0 命中才允许提交
-git diff --cached | grep -nE '\b([0-9]{1,3}\.){3}[0-9]{1,3}\b'     # 空输出才允许提交
-git diff --cached | grep -nE '(sslip|nip|xip|traefik)\.(io|me)'    # 空输出才允许提交
+# 依赖（与 CI 同版本）
+python -m pip install -r server/requirements-server.txt httpx pytest buttplug
+
+cd server
+
+# 1) 全量 pytest（冒烟 + 行为契约 + 数据层）
+PYTHONPATH=. python -m pytest tests/ -v
+
+# 2) 既有回归套件（独立脚本，不归 pytest 收集）
+python tests/verify_server.py
+python tests/verify_static_token.py
+python tests/verify_governor.py
+python tests/verify_numeric_inputs.py
+PYTHONPATH=. python tests/verify_patterns.py
+PYTHONPATH=. python tests/verify_pattern_routes.py
+PYTHONPATH=. python tests/verify_relays.py
+
+# 3) 数据层工具
+python -m scripts.migrate_legacy --dry-run    # 迁移演练，零副作用
 ```
 
-CI 也会跑同一套检查（`.github/workflows/secret-scan.yml`）。
-**不要为了让 CI 通过而往 `.gitleaks.toml` 的 allowlist 里加真实地址。**
+验证环境由项目所有者提供。**其地址、域名、路径、凭据只存在于项目所有者手上的交接材料，不得写入仓库文件、PR 描述、commit message 或代码注释。**
 
----
+## 5. 推送完整性校验（不要跳过）
 
-## 5. 已经泄露了怎么办
+用 API/MCP 推送文件时，纯文本内容可能在二次转录中**静默损坏**——main 上那个导致无法启动的 K1 就是这么来的。推送后必须回读比对：
 
-按顺序做，不要跳步：
+```bash
+# 推送前，在验证机上算出每个文件的 blob 哈希
+git hash-object server/app/db.py ...
+```
 
-1. **停止扩散**：先把 PR 描述 / Issue / 评论里的内容改掉（编辑文本框不改历史，但能立刻止血）。
-2. **轮换**：泄露的是凭据就立刻轮换；泄露的是 IP 就按「源站地址已公开」重新评估暴露面
-   （反代是否只放行 CDN 回源、端口是否对外、证书是否过期）。
-3. **下线暴露面**：如果泄露的是把 IP 编码进域名的服务（`sslip.io` 等），
-   立刻停掉对应 vhost 与其 TLS 续期，把对外入口换成自有域名 + CDN。
-4. **清历史**：用 `git-filter-repo` 重写，**不要用 `git filter-branch`**。改写后 `--force` 推送。
-   > 注意：`refs/pull/*` 快照无法改写。若历史里有过严重泄露，**删库重建**是唯一彻底的办法，
-   > 重建时只推分支与 tag，不要带上 PR 快照。
-5. **留记录**：在 `docs/redesign/*.md` 的「决策记录」里追加一条 ADR，写明日期 / 泄露面 / 处置。
-6. **补防线**：把这次的漏检模式加进 `.gitleaks.toml`。
+再从远端读回同一文件，比对返回的 blob SHA。不一致就重推。**文档类文件同样适用**。
+
+## 6. 给下一个 Agent 的开场提示词（复制即用）
+
+```
+你要接手 AI-intoU 服务端重构。开工前按顺序读：
+1. AGENTS.md（作业手册，硬规则在 §2）
+2. docs/redesign/02-architecture.md（设计宪法：§1 铁律、§4 数据模型、§9 里程碑）
+3. docs/redesign/01-product.md（已锁定决策 D1–D6）
+4. docs/redesign/00-current-state.md（现状与已知问题）
+
+本次任务：<里程碑编号与名称，例如 M2 — 统一令牌与认证体系>
+
+约束：
+- 不得违反 AGENTS.md §2 硬规则（尤其材料卫生：不写 IP/域名/凭据）
+- 验收以测试结果为准，必须在验证机跑全量套件（AGENTS.md §4）
+- 推送后做 blob SHA 回读校验（AGENTS.md §5）
+- 有设计疑问先问，不要自行推翻已锁定决策
+
+请先复述你对本次任务的理解、验收标准和你的执行计划，等我确认后再动手。
+```
+
+## 7. 踩过的坑（省你时间）
+
+- **Alembic 1.20** 的 `command.upgrade()` 不再接受 `x_arg=`；改用 `cfg.set_main_option("sqlalchemy.url", ...)`。
+- **旧库表名冲突**：legacy 时代的 `users` / `safety_config` 与新 schema 同名，迁移器必须先改名 `legacy_*` 再建表。
+- **FastAPI TestClient 的 WebSocket**：上下文退出会触发服务端 cleanup；`dead_man_switch` 每 2s 发一次心跳，`receive_json()` 会等到它——不要假设没有消息。
+- **`_mcp_sessions` 目前没有 TTL**（K5，M4 处理）；在此之前不要对外承诺 MCP 会话的持久性。
+- **CI 的 pytest 步骤跑 `tests/` 全目录**；`verify_*.py` 是独立脚本，不被 pytest 收集，必须单独跑。
+- **生产与仓库不同步**：本仓库的 main 不保证等于任何人的线上部署。任何“线上是怎么跑的”结论都必须实地确认，不要从 README 或本手册推断。
+
+## 8. 公开前检查清单（仓库迟早公开，逐项过）
+
+1. **全文搜索敏感串**：真实 IP（`\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}`）、域名、`token`/`secret`/`password` 的字面值、服务器绝对路径、账号名。
+2. **检查脚本默认值**：relay/CLI 脚本的 `--server`、`--token` 等参数默认值必须是 `example.com` 之类的占位符或必填项。历史遗留真实域名要清掉。
+3. **检查 `.env` 类文件**：只留字段名与说明，不留任何真实值；确认 `.env` 本身在 `.gitignore` 里。
+4. **检查文档示例**：README / DEPLOY 里的示例地址、Token、密钥全部用占位符。
+5. **检查 git 历史**：`git log -p --all | grep -E "<敏感特征>"`。文件改掉 ≠ 历史干净——旧提交里仍留着。若历史中确有泄露，决定是改写历史（`git filter-repo`）还是轮换掉那项凭据（更稳、更省事）。
+6. **检查 PR 描述与 commit message**：它们是公开仓库最容易被忽略的泄漏面，且**不进 git 历史时也照样公开展示**。
+7. 公开前如需第三方复核，可用 `run_secret_scanning` 对改动文件做一次密钥扫描。
