@@ -1,8 +1,5 @@
 # AI-intoU（樱趣）
 
-[![Build APK](https://github.com/MorphieEndless/AI-intoU/actions/workflows/build-apk.yml/badge.svg)](https://github.com/MorphieEndless/AI-intoU/actions/workflows/build-apk.yml)
-[![Test server](https://github.com/MorphieEndless/AI-intoU/actions/workflows/test-server.yml/badge.svg)](https://github.com/MorphieEndless/AI-intoU/actions/workflows/test-server.yml)
-
 让 AI 通过 MCP 远程控制你的蓝牙小玩具。一个仓库收齐全部组件：服务端 + Android App + 一键部署。
 
 ## 这是什么
