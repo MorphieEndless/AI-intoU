@@ -8,10 +8,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Bluetooth
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.Waves
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.yingti.app.AppScreen
 
@@ -24,6 +27,7 @@ fun AppNavigation(screen: AppScreen, onScreen: (AppScreen) -> Unit, content: @Co
             NavigationBar {
                 val tabs = listOf(
                     Triple(AppScreen.DASHBOARD, "玩具", Icons.Outlined.Bluetooth),
+                    Triple(AppScreen.PATTERNS, "波形库", Icons.Outlined.Waves),
                     Triple(AppScreen.LOGS, "日志", Icons.Outlined.History),
                     Triple(AppScreen.SETTINGS, "设置", Icons.Outlined.Settings),
                 )
@@ -41,20 +45,21 @@ fun AppNavigation(screen: AppScreen, onScreen: (AppScreen) -> Unit, content: @Co
 }
 
 @Composable
-fun ToyPages(configured: Boolean, onSettings: () -> Unit, library: @Composable () -> Unit, controls: @Composable () -> Unit) {
-    var tab by rememberSaveable { mutableIntStateOf(0) }
-    Column(Modifier.fillMaxSize()) {
-        TabRow(selectedTabIndex = tab) {
-            Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("设备控制") })
-            Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("波形库") })
-        }
-        Box(Modifier.weight(1f)) {
-            if (!configured) Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                Text("先连接你的服务器", style = MaterialTheme.typography.titleLarge)
-                Text("到设置填写服务器与凭证，保存后即可连接设备和查看波形库。")
-                Button(onClick = onSettings) { Text("打开设置") }
-            } else if (tab == 0) controls() else library()
-        }
+fun PatternLibraryPlaceholder(onSettings: () -> Unit) {
+    Column(
+        Modifier.fillMaxSize().padding(24.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Spacer(Modifier.height(48.dp))
+        Text("先连接你的服务器", style = MaterialTheme.typography.titleLarge)
+        Text(
+            "波形库需要与你的云端服务器同步。请先到设置填写服务器地址与凭证，保存后即可查看云端波形库并重放。",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.secondary,
+            textAlign = TextAlign.Center,
+        )
+        Button(onClick = onSettings) { Text("打开设置") }
     }
 }
 

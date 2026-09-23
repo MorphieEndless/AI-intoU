@@ -27,7 +27,7 @@ import com.yingti.app.relay.RelayService
 import com.yingti.app.ui.*
 import kotlinx.coroutines.launch
 
-enum class AppScreen { DASHBOARD, LOGS, SETTINGS }
+enum class AppScreen { DASHBOARD, PATTERNS, LOGS, SETTINGS }
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -125,6 +125,43 @@ class MainActivity : ComponentActivity() {
                 Box(Modifier.fillMaxSize()) {
                     AppNavigation(screen, { screen = it }) {
                         when (screen) {
+                            AppScreen.DASHBOARD -> DashboardScreen(
+                                state = bridge,
+                                server = app.tokenStore.serverBaseUrl,
+                                darkTheme = darkTheme,
+                                devMode = false,
+                                onToggleTheme = {
+                                    darkTheme = !darkTheme
+                                    UiPrefs.setDarkTheme(context, darkTheme)
+                                },
+                                onScan = { RelayService.send(context, RelayService.ACTION_SCAN) },
+                                onVibrate = { RelayService.send(context, RelayService.ACTION_VIBRATE, it) },
+                                onStop = { RelayService.send(context, RelayService.ACTION_STOP_ALL) },
+                                onRawFrame = { RelayService.sendRaw(context, it) },
+                                onSuction = { intensity, mode ->
+                                    RelayService.send(context, RelayService.ACTION_SUCTION, intensity, mode)
+                                },
+                                onSettings = {
+                                    connectionStatus = null
+                                    connectionError = null
+                                    screen = AppScreen.SETTINGS
+                                },
+                                onLogout = ::logout,
+                            )
+                            AppScreen.PATTERNS -> if (!configured) {
+                                PatternLibraryPlaceholder(onSettings = {
+                                    connectionStatus = null
+                                    connectionError = null
+                                    screen = AppScreen.SETTINGS
+                                })
+                            } else {
+                                PatternLibraryScreen(
+                                    app.tokenStore.currentConfig(),
+                                    bridge.serviceRunning && bridge.bleStatus.contains("已连接"),
+                                    app.history,
+                                    { RelayService.playPattern(context, it) }
+                                )
+                            }
                             AppScreen.LOGS -> ActivityScreen(history)
                             AppScreen.SETTINGS -> SettingsPages(
                                 devMode, configured, bridge.lastMessage,
@@ -162,38 +199,6 @@ class MainActivity : ComponentActivity() {
                                     },
                                     onCopy = ::copyToClipboard,
                                     onClearHistory = app.history::clear,
-                                )
-                            }
-                            AppScreen.DASHBOARD -> ToyPages(configured, { screen = AppScreen.SETTINGS }, library = {
-                                PatternLibraryScreen(
-                                    app.tokenStore.currentConfig(),
-                                    bridge.serviceRunning && bridge.bleStatus.contains("已连接"),
-                                    app.history,
-                                    { RelayService.playPattern(context, it) }
-                                )
-                            }) {
-                                DashboardScreen(
-                                    state = bridge,
-                                    server = app.tokenStore.serverBaseUrl,
-                                    darkTheme = darkTheme,
-                                    devMode = false,
-                                    onToggleTheme = {
-                                        darkTheme = !darkTheme
-                                        UiPrefs.setDarkTheme(context, darkTheme)
-                                    },
-                                    onScan = { RelayService.send(context, RelayService.ACTION_SCAN) },
-                                    onVibrate = { RelayService.send(context, RelayService.ACTION_VIBRATE, it) },
-                                    onStop = { RelayService.send(context, RelayService.ACTION_STOP_ALL) },
-                                    onRawFrame = { RelayService.sendRaw(context, it) },
-                                    onSuction = { intensity, mode ->
-                                        RelayService.send(context, RelayService.ACTION_SUCTION, intensity, mode)
-                                    },
-                                    onSettings = {
-                                        connectionStatus = null
-                                        connectionError = null
-                                        screen = AppScreen.SETTINGS
-                                    },
-                                    onLogout = ::logout,
                                 )
                             }
                         }
