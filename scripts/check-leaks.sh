@@ -44,7 +44,7 @@ hits=$(grep -rnIE 'SB_SECRET_KEY=[A-Za-z0-9_+/=-]{16,}|SB_STATIC_BEARER_TOKEN=[A
 if [ -n "$hits" ]; then report "credential" "发现疑似真实凭据" "$hits"; else echo "ok"; fi
 
 section "5. 内部域名 / 隧道地址"
-# example 只违「RFC 2606 保留域」放行：example.com / .net / .org / .edu / .gov / .mil / .int
+# example 只按「RFC 2606 保留域」放行：example.com / .net / .org / .edu / .gov / .mil / .int
 # 以及保留 TLD（.test / .invalid / .localhost）。这些指向不了任何主机，与已放行的
 # your-subdomain.duckdns.org 同类；白名单里依旧没有任何真实地址。
 # 但 example.<真实 TLD>（如 example.top）照拦不误 —— 那不是占位符，是把真实域名
