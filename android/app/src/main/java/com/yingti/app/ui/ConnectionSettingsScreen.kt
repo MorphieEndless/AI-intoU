@@ -42,6 +42,12 @@ import androidx.compose.ui.unit.dp
 import com.yingti.app.auth.AuthMode
 import com.yingti.app.auth.ConnectionConfig
 
+/** 破坏性操作确认：要求手动输入的 Token 末尾位数（完整 Token 过长，逐字手打不现实）。 */
+private const val CONFIRM_TAIL_LENGTH = 20
+
+/** 未配置 Token 时（如仅测蓝牙）退化为固定确认短语。 */
+private const val FALLBACK_CONFIRM_PHRASE = "CONFIRM-DELETE-LOCAL-HISTORY"
+
 @Composable
 fun ConnectionSettingsScreen(
     initialConfig: ConnectionConfig,
@@ -101,7 +107,9 @@ fun ConnectionSettingsScreen(
         AuthMode.ACCOUNT -> username.isNotBlank() && password.isNotBlank()
     }
 
-    val requiredConfirmText = if (token.trim().isNotBlank()) token.trim() else "CONFIRM-DELETE-LOCAL-HISTORY"
+    // v0.14：破坏性操作确认由「手动输入完整 Token」改为「手动输入末尾 20 位」。
+    // 账户模式下 Token 是近 200 位的 JWT，逐字手打不现实；末尾 20 位足以拦住误触。
+    val requiredConfirmText = token.trim().takeLast(CONFIRM_TAIL_LENGTH).ifBlank { FALLBACK_CONFIRM_PHRASE }
     val isConfirmMatched = clearConfirmInput.trim() == requiredConfirmText
 
     val noPasteToolbar = remember {
@@ -133,7 +141,7 @@ fun ConnectionSettingsScreen(
                         style = MaterialTheme.typography.bodyMedium,
                     )
                     Text(
-                        "为防止误触破坏，请在下方手动输入当前完整 Token 以确认（不可粘贴）：",
+                        "为防止误触破坏，请在下方手动输入当前 Token 的末尾 $CONFIRM_TAIL_LENGTH 位以确认（不可粘贴）：",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error,
                     )
@@ -143,17 +151,21 @@ fun ConnectionSettingsScreen(
                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Text(
-                            text = requiredConfirmText,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState())
-                                .padding(10.dp),
-                            style = MaterialTheme.typography.bodySmall,
-                            fontFamily = FontFamily.Monospace,
-                            softWrap = false,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(
+                                if (token.trim().isNotBlank())
+                                    "当前 Token 末尾 $CONFIRM_TAIL_LENGTH 位（完整 Token 共 ${token.trim().length} 位）"
+                                else "确认短语",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.secondary,
+                            )
+                            Text(
+                                text = requiredConfirmText,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontFamily = FontFamily.Monospace,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                     CompositionLocalProvider(LocalTextToolbar provides noPasteToolbar) {
                         OutlinedTextField(
@@ -168,7 +180,7 @@ fun ConnectionSettingsScreen(
                             },
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = true,
-                            label = { Text("手动输入完整 Token") },
+                            label = { Text("手动输入末尾 $CONFIRM_TAIL_LENGTH 位") },
                             placeholder = {
                                 Text("不可粘贴，请手动输入", style = MaterialTheme.typography.bodySmall)
                             },
@@ -180,11 +192,11 @@ fun ConnectionSettingsScreen(
                                         color = MaterialTheme.colorScheme.error,
                                     )
                                     clearConfirmInput.isNotBlank() && !isConfirmMatched -> Text(
-                                        "Token 不一致，请核对上方完整 Token",
+                                        "末尾 $CONFIRM_TAIL_LENGTH 位不匹配，请核对上方字符",
                                         color = MaterialTheme.colorScheme.error,
                                     )
                                     isConfirmMatched -> Text(
-                                        "Token 验证通过",
+                                        "验证通过",
                                         color = MaterialTheme.colorScheme.primary,
                                     )
                                 }
