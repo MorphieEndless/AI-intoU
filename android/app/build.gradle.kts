@@ -12,8 +12,8 @@ android {
         applicationId = "com.yingti.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 18
-        versionName = "0.13.0"
+        versionCode = 19
+        versionName = "0.14.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -65,4 +65,3 @@ dependencies {
     testImplementation("org.json:json:20240303")
     testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
 }
-
