@@ -29,7 +29,6 @@ fun PatternLibraryScreen(config: ConnectionConfig, connected: Boolean, history: 
     var error by remember(config) { mutableStateOf<String?>(null) }
     var detail by remember(config) { mutableStateOf<JSONObject?>(null) }
     var deleting by remember(config) { mutableStateOf<PatternSummary?>(null) }
-    var confirmPlay by remember(config) { mutableStateOf(false) }
     var notice by remember(config) { mutableStateOf<String?>(null) }
 
     suspend fun load(more: Boolean = false) {
@@ -84,7 +83,7 @@ fun PatternLibraryScreen(config: ConnectionConfig, connected: Boolean, history: 
     }
 
     detail?.let { data ->
-        if (!confirmPlay) AlertDialog(
+        AlertDialog(
             onDismissRequest = { if (!loading) detail = null },
             title = { Text(data.optString("name", "波形详情")) },
             text = {
@@ -101,26 +100,27 @@ fun PatternLibraryScreen(config: ConnectionConfig, connected: Boolean, history: 
                     if (!connected) Text("设备未连接，暂不能重放。", color = MaterialTheme.colorScheme.error)
                 }
             },
-            confirmButton = { Button(enabled = connected && !loading, onClick = { confirmPlay = true }) { Text("重放") } },
-            dismissButton = { TextButton(onClick = { detail = null }) { Text("关闭") } },
-        )
-        if (confirmPlay) AlertDialog(
-            onDismissRequest = { if (!loading) confirmPlay = false }, title = { Text("现在重放？") },
-            text = { Text("将在当前手机连接的设备上重放，替换正在运行的波形。") },
-            confirmButton = { Button(enabled = !loading && connected, onClick = {
-                scope.launch {
-                    loading = true; error = null
-                    try {
-                        val command = playbackCommand(api.get(data.getString("id")))
-                        onPlay(command)
-                        notice = "已提交本机重放请求，执行结果请查看日志"
-                        detail = null; confirmPlay = false
-                    } catch (e: CancellationException) { throw e }
-                    catch (e: Exception) { error = e.message ?: "无法重放波形"; confirmPlay = false; detail = null }
-                    finally { loading = false }
+            confirmButton = {
+                Button(
+                    enabled = connected && !loading,
+                    onClick = {
+                        scope.launch {
+                            loading = true; error = null
+                            try {
+                                val command = playbackCommand(api.get(data.getString("id")))
+                                onPlay(command)
+                                notice = "已提交本机重放请求，执行结果请查看日志"
+                                detail = null
+                            } catch (e: CancellationException) { throw e }
+                            catch (e: Exception) { error = e.message ?: "无法重放波形"; detail = null }
+                            finally { loading = false }
+                        }
+                    },
+                ) {
+                    Text(if (loading) "正在读取…" else "重放")
                 }
-            }) { Text(if (loading) "正在读取…" else "确认重放") } },
-            dismissButton = { TextButton(enabled = !loading, onClick = { confirmPlay = false }) { Text("取消") } },
+            },
+            dismissButton = { TextButton(enabled = !loading, onClick = { detail = null }) { Text("关闭") } },
         )
     }
     deleting?.let { pattern -> AlertDialog(

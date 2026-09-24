@@ -55,13 +55,24 @@ regex = '''(?:SB_SECRET_KEY|SB_STATIC_BEARER_TOKEN)\s*=\s*[A-Za-z0-9_+/=-]{16,}'
 [[rules]]
 id = "aiu-internal-hostname"
 description = "内部域名 / 隧道 / 动态 DNS 地址残留"
-regex = '''(?i)(?:in2\.[a-z0-9-]+\.(?:top|com|net)|(?:[a-z0-9-]+\.)?example\.[a-z]+|[a-z0-9-]{2,}\.ngrok-free\.app|trycloudflare\.com|[a-z0-9-]{2,}\.duckdns\.org)'''
+regex = '''(?i)(?:in2\.[a-z0-9-]+\.(?:top|com|net)|(?:[a-z0-9-]+\\.)?example\.[a-z]+|[a-z0-9-]{2,}\.ngrok-free\.app|trycloudflare\.com|[a-z0-9-]{2,}\.duckdns\.org)'''
 
   [[rules.allowlists]]
   description = "允许的占位符"
   regexes = [
     '''your-subdomain\.duckdns\.org''',
     '''www\.duckdns\.org'''
+  ]
+
+  # RFC 2606 保留域下的占位符：指向不了任何主机，与上面的 duckdns 占位符同类。
+  # 只放行保留域（.com/.net/.org/.edu/.gov/.mil/.int）与保留 TLD（.test/.invalid/.localhost）；
+  # 把顶级域换成真实值的例子域名不在放行之列，仍会被拦下。
+  # 允许这些占位符不等于放行真实地址 —— 白名单里没有任何真实值。
+  [[rules.allowlists]]
+  description = "RFC 2606 保留域占位符"
+  regexes = [
+    '''example\.(?:com|net|org|edu|gov|mil|int)''',
+    '''example\.(?:test|invalid|localhost)''',
   ]
 
 # ── 5. 提交者身份里的 PII ──────────────────────────────────────────────

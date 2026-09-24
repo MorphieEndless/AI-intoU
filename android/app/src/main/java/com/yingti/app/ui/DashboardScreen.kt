@@ -1,6 +1,8 @@
 package com.yingti.app.ui
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -19,9 +21,11 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
 import com.yingti.app.R
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -41,17 +45,17 @@ private val toyPresets = listOf(
     ToyPreset("6", 8, 3, "节奏 08"),
 )
 
-// 真机定论去重后的 6 个有效模式（02=03 抖动、08=01 脉冲均同一模式，已合并）。
+// 真机定论去重后的 6 个有效模式（02=03 抖动、08=01 脉冲均同一模式，已合并；4/5/6 经真机实测定名）。
 private val suctionModes = listOf(
-    5 to "持续",
+    5 to "持续直吸",
     1 to "脉冲",
     2 to "抖动",
-    4 to "另类脉冲",
-    6 to "节奏 A",
+    4 to "交替脉冲",
+    6 to "波浪律动",
     7 to "节奏 B",
 )
 
-// 震动档位语义（v0.10.x 实测整理；7-9 档尚未逐档校准，不显示描述）。
+// 震动档位语义（0-10 档全部实测校准：7/8/9 经真机逐档体验确定）。
 private val vibDescriptions = mapOf(
     0 to "停止",
     1 to "持续",
@@ -60,6 +64,9 @@ private val vibDescriptions = mapOf(
     4 to "长振循环",
     5 to "断续",
     6 to "中震×6 + 强震×2",
+    7 to "微颤渐强",
+    8 to "中震×4 + 强震×1",
+    9 to "快速断续 + 强震×1",
     10 to "满功率",
 )
 
@@ -326,42 +333,76 @@ private fun SuctionCard(
                     TextButton(onClick = onStopSuction) { Text("停止") }
                 }
             } else {
-                Text("模式", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.secondary)
-                // Restore two columns so longer mode names retain their space.
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    suctionModes.chunked(2).forEach { row ->
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            row.forEach { (value, label) ->
-                                FilterChip(
-                                    selected = mode == value,
-                                    onClick = {
-                                        onModeChange(value)
-                                        val lvl = level.roundToInt()
-                                        if (lvl > 0) {
-                                            onSuction(lvl / 5.0, value)
-                                        }
-                                    },
-                                    label = { Text(label) },
-                                    modifier = Modifier.weight(1f),
-                                )
+                // v0.14：模式区改为 2 段 × 3 格的无缝分段控件，替掉原来 2 列 × 3 行的 FilterChip 网格。
+                // 格与格之间不留缝、只留一条细分隔线，整排看起来是一块控件；选中格填 secondaryContainer。
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("模式", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.secondary)
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        suctionModes.chunked(3).forEach { row ->
+                            val segmentShape = RoundedCornerShape(9.dp)
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clip(segmentShape)
+                                    .background(MaterialTheme.colorScheme.surfaceContainerLow)
+                                    .border(BorderStroke(1.dp, MaterialTheme.colorScheme.outline), segmentShape),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                row.forEachIndexed { index, entry ->
+                                    val (value, label) = entry
+                                    if (index > 0) {
+                                        Box(
+                                            Modifier
+                                                .width(1.dp)
+                                                .height(20.dp)
+                                                .background(MaterialTheme.colorScheme.outline),
+                                        )
+                                    }
+                                    val selected = mode == value
+                                    Box(
+                                        Modifier
+                                            .weight(1f)
+                                            .height(34.dp)
+                                            .background(
+                                                if (selected) MaterialTheme.colorScheme.secondaryContainer
+                                                else Color.Transparent,
+                                            )
+                                            .clickable {
+                                                onModeChange(value)
+                                                val lvl = level.roundToInt()
+                                                if (lvl > 0) {
+                                                    onSuction(lvl / 5.0, value)
+                                                }
+                                            },
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        Text(
+                                            label,
+                                            style = MaterialTheme.typography.labelLarge,
+                                            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                                            color = if (selected) MaterialTheme.colorScheme.onSecondaryContainer
+                                            else MaterialTheme.colorScheme.onSurface,
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
+                    Row(verticalAlignment = Alignment.Bottom) {
+                        Text("${level.roundToInt()}", style = MaterialTheme.typography.displaySmall)
+                        Text(" / 5 档", modifier = Modifier.padding(bottom = 6.dp), color = MaterialTheme.colorScheme.secondary)
+                    }
+                    Slider(
+                        value = level,
+                        onValueChange = onLevelChange,
+                        valueRange = 0f..5f,
+                        steps = 4,
+                        onValueChangeFinished = {
+                            val lvl = level.roundToInt()
+                            if (lvl == 0) onStopSuction() else onSuction(lvl / 5.0, mode)
+                        },
+                    )
                 }
-                Row(verticalAlignment = Alignment.Bottom) {
-                    Text("${level.roundToInt()}", style = MaterialTheme.typography.displaySmall)
-                    Text(" / 5 档", modifier = Modifier.padding(bottom = 6.dp), color = MaterialTheme.colorScheme.secondary)
-                }
-                Slider(
-                    value = level,
-                    onValueChange = onLevelChange,
-                    valueRange = 0f..5f,
-                    steps = 4,
-                    onValueChangeFinished = {
-                        val lvl = level.roundToInt()
-                        if (lvl == 0) onStopSuction() else onSuction(lvl / 5.0, mode)
-                    },
-                )
             }
         }
     }

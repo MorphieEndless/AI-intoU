@@ -44,8 +44,17 @@ hits=$(grep -rnIE 'SB_SECRET_KEY=[A-Za-z0-9_+/=-]{16,}|SB_STATIC_BEARER_TOKEN=[A
 if [ -n "$hits" ]; then report "credential" "发现疑似真实凭据" "$hits"; else echo "ok"; fi
 
 section "5. 内部域名 / 隧道地址"
-hits=$(grep -rnIE 'example|in2\.[a-z0-9-]+\.(top|com|net)|[a-z0-9-]+\.ngrok-free\.app|trycloudflare\.com|[a-z0-9-]{2,}\.duckdns\.org' "${EXC[@]}" . 2>/dev/null \
-       | grep -vE '(your-subdomain\.duckdns\.org|www\.duckdns\.org)' | grep -vE '^\s*$')
+# example 只按「RFC 2606 保留域」放行：example.com / .net / .org / .edu / .gov / .mil / .int
+# 以及保留 TLD（.test / .invalid / .localhost）。这些指向不了任何主机，与已放行的
+# your-subdomain.duckdns.org 同类；白名单里依旧没有任何真实地址。
+# 但 example.<真实 TLD>（如 example.top）照拦不误 —— 那不是占位符，是把真实域名
+# 伪装成示例形态。
+RE_HOST='example\.[a-z]{2,}|in2\.[a-z0-9-]+\.(top|com|net)|[a-z0-9-]+\.ngrok-free\.app|trycloudflare\.com|[a-z0-9-]{2,}\.duckdns\.org'
+RE_PLACEHOLDER='example\.(com|net|org|edu|gov|mil|int|test|invalid|localhost)|your-subdomain\.duckdns\.org|www\.duckdns\.org'
+# 先在命中行里抹掉占位符再复检，而不是整行剔除：这样「占位符 + 真实残留」出现在
+# 同一行时仍会被拦下，不会因为一行的前半截合法就放过后半截。
+raw=$(grep -rnIE "$RE_HOST" "${EXC[@]}" . 2>/dev/null || true)
+hits=$(printf '%s\n' "$raw" | sed -E "s/$RE_PLACEHOLDER//g" | grep -E "$RE_HOST" || true)
 if [ -n "$hits" ]; then report "internal-host" "发现内部域名 / 隧道残留" "$hits"; else echo "ok"; fi
 
 section "6. 作者本机路径"
