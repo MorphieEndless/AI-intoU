@@ -24,13 +24,10 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from alembic import command
-from alembic.config import Config
-
 SERVER_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SERVER_DIR))
 
-from app.db import session_scope  # noqa: E402
+from app.db import session_scope, upgrade_to_head  # noqa: E402
 from app.models import Pattern, SafetyConfig, User  # noqa: E402
 
 LEGACY_TABLES = ("users", "safety_config",
@@ -62,10 +59,8 @@ def _rename_legacy_tables(conn: sqlite3.Connection) -> list[str]:
 
 
 def _create_schema(db_path: Path) -> None:
-    cfg = Config(str(SERVER_DIR / "alembic.ini"))
-    cfg.set_main_option("script_location", str(SERVER_DIR / "alembic"))
-    cfg.set_main_option("sqlalchemy.url", f"sqlite:///{db_path}")
-    command.upgrade(cfg, "head")
+    """Single implementation of "bring the schema to head" (app.db)."""
+    upgrade_to_head(str(db_path))
 
 
 def _copy_users(conn, db_path, dry_run, src="legacy_users") -> int:

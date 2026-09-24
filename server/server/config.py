@@ -1,69 +1,62 @@
-"""
-Signal Bridge Remote — Server Configuration
+"""Legacy alias of `app.config` — kept only until the legacy package is gone.
 
-All settings are loaded from environment variables with sensible defaults.
-In production, set SB_SECRET_KEY to a random 64-char string.
-"""
-import os
-from pathlib import Path
+Configuration now lives in `app/config.py`: one source, validated at
+startup by pydantic-settings. This module re-exports the same names with
+the same values so the legacy `server/*` modules keep working while they
+are migrated out (M3/M4). New code imports `app.config` directly.
 
-from dotenv import load_dotenv
-load_dotenv()  # Load .env file before reading any env vars
+Nothing here reads the environment itself — a second reader of `SB_*`
+would be a second source of truth (architecture doc §1.2).
+
+Two names differ on purpose:
+  * `HEARTBEAT_INTERVAL_S` / `HEARTBEAT_TIMEOUT_S` are the legacy spellings
+    of `settings.HEARTBEAT_INTERVAL` / `settings.HEARTBEAT_TIMEOUT`;
+  * `CORS_ORIGINS` is the legacy list, not the raw comma-separated string.
+"""
+from __future__ import annotations
+
+from app.config import (  # noqa: F401 — re-exported for legacy callers
+    DEFAULT_DB_PATH,
+    DEFAULT_PATTERNS_DIR,
+    settings,
+    validate,
+)
 
 # ── Server ──────────────────────────────────────────────────────────────
-HOST = os.getenv("SB_HOST", "0.0.0.0")
-PORT = int(os.getenv("SB_PORT", "8420"))
-SECRET_KEY = os.getenv("SB_SECRET_KEY", "")  # MUST be set in production
-CORS_ORIGINS = os.getenv("SB_CORS_ORIGINS", "*").split(",")
+HOST = settings.HOST
+PORT = settings.PORT
+SECRET_KEY = settings.SECRET_KEY
+CORS_ORIGINS = settings.cors_origin_list()
 
 # ── Auth ────────────────────────────────────────────────────────────────
-TOKEN_EXPIRY_HOURS = int(os.getenv("SB_TOKEN_EXPIRY_HOURS", "168"))  # 1 week
-REGISTRATION_OPEN = os.getenv("SB_REGISTRATION_OPEN", "true").lower() == "true"
-REQUIRE_MCP_AUTH = os.getenv("SB_REQUIRE_MCP_AUTH", "false").lower() == "true"
-# Optional single-user self-hosting mode. The same token authenticates the
-# Android phone WebSocket and MCP HTTP requests. Leave blank to disable.
-STATIC_BEARER_TOKEN = os.getenv("SB_STATIC_BEARER_TOKEN", "").strip()
+TOKEN_EXPIRY_HOURS = settings.TOKEN_EXPIRY_HOURS
+SESSION_TOKEN_TTL_HOURS = settings.SESSION_TOKEN_TTL_HOURS
+REGISTRATION_OPEN = settings.REGISTRATION_OPEN
+REQUIRE_MCP_AUTH = settings.REQUIRE_MCP_AUTH
+STATIC_BEARER_TOKEN = settings.STATIC_BEARER_TOKEN
 
-# ── Rate Limiting ───────────────────────────────────────────────────────
-# Format: "count/period" — e.g. "5/minute", "100/hour"
-RATE_LIMIT_AUTH = os.getenv("SB_RATE_LIMIT_AUTH", "5/minute")
-RATE_LIMIT_COMMANDS = os.getenv("SB_RATE_LIMIT_COMMANDS", "120/minute")
-RATE_LIMIT_GLOBAL = os.getenv("SB_RATE_LIMIT_GLOBAL", "300/minute")
-MAX_WS_PER_IP = int(os.getenv("SB_MAX_WS_PER_IP", "3"))
-BAN_THRESHOLD = int(os.getenv("SB_BAN_THRESHOLD", "20"))
-BAN_DURATION_MINUTES = int(os.getenv("SB_BAN_DURATION_MINUTES", "30"))
+# ── Rate limiting ───────────────────────────────────────────────────────
+RATE_LIMIT_AUTH = settings.RATE_LIMIT_AUTH
+RATE_LIMIT_COMMANDS = settings.RATE_LIMIT_COMMANDS
+RATE_LIMIT_GLOBAL = settings.RATE_LIMIT_GLOBAL
+MAX_WS_PER_IP = settings.MAX_WS_PER_IP
+BAN_THRESHOLD = settings.BAN_THRESHOLD
+BAN_DURATION_MINUTES = settings.BAN_DURATION_MINUTES
 
 # ── Safety ──────────────────────────────────────────────────────────────
-HEARTBEAT_INTERVAL_S = float(os.getenv("SB_HEARTBEAT_INTERVAL", "2.0"))
-HEARTBEAT_TIMEOUT_S = float(os.getenv("SB_HEARTBEAT_TIMEOUT", "6.0"))
+HEARTBEAT_INTERVAL_S = settings.HEARTBEAT_INTERVAL
+HEARTBEAT_TIMEOUT_S = settings.HEARTBEAT_TIMEOUT
 
-# ── Governor (session intensity limiter) ───────────────────────────────
-# Heat accumulates based on intensity × time, dissipates when idle.
-# Cooldown triggers when heat reaches threshold, exits at the floor.
-GOVERNOR_ENABLED = os.getenv("SB_GOVERNOR_ENABLED", "true").lower() == "true"
-GOVERNOR_HEAT_RATE = float(os.getenv("SB_GOVERNOR_HEAT_RATE", "3.0"))        # heat units/sec at intensity=1.0
-GOVERNOR_COOL_RATE = float(os.getenv("SB_GOVERNOR_COOL_RATE", "2.0"))        # heat units/sec dissipation when idle
-GOVERNOR_COOLDOWN_THRESHOLD = float(os.getenv("SB_GOVERNOR_COOLDOWN_ENTER", "90.0"))  # heat% to trigger cooldown
-GOVERNOR_COOLDOWN_EXIT = float(os.getenv("SB_GOVERNOR_COOLDOWN_EXIT", "30.0"))        # heat% to exit cooldown
-GOVERNOR_COOLDOWN_DURATION = float(os.getenv("SB_GOVERNOR_COOLDOWN_DURATION", "30.0"))  # min seconds in cooldown
+# ── Governor ────────────────────────────────────────────────────────────
+GOVERNOR_ENABLED = settings.GOVERNOR_ENABLED
+GOVERNOR_HEAT_RATE = settings.GOVERNOR_HEAT_RATE
+GOVERNOR_COOL_RATE = settings.GOVERNOR_COOL_RATE
+GOVERNOR_COOLDOWN_THRESHOLD = settings.GOVERNOR_COOLDOWN_THRESHOLD
+GOVERNOR_COOLDOWN_EXIT = settings.GOVERNOR_COOLDOWN_EXIT
+GOVERNOR_COOLDOWN_DURATION = settings.GOVERNOR_COOLDOWN_DURATION
 
-# ── Pattern Library ─────────────────────────────────────────────────────
-# Per-user JSON storage for saved custom waveforms (pattern_store.py).
-PATTERNS_DIR = os.getenv("SB_PATTERNS_DIR", str(Path(__file__).parent / "data" / "patterns"))
+# ── Pattern library ─────────────────────────────────────────────────────
+PATTERNS_DIR = settings.PATTERNS_DIR
 
 # ── Database ────────────────────────────────────────────────────────────
-DB_PATH = os.getenv("SB_DB_PATH", str(Path(__file__).parent / "signal_bridge.db"))
-
-
-def validate():
-    """Check that critical config is set. Call on startup."""
-    if not SECRET_KEY:
-        raise RuntimeError(
-            "SB_SECRET_KEY is not set. Generate one with: "
-            "python -c \"import secrets; print(secrets.token_hex(32))\""
-        )
-    if STATIC_BEARER_TOKEN and len(STATIC_BEARER_TOKEN) < 32:
-        raise RuntimeError(
-            "SB_STATIC_BEARER_TOKEN must be at least 32 characters. Generate one with: "
-            "python -c \"import secrets; print(secrets.token_urlsafe(32))\""
-        )
+DB_PATH = settings.DB_PATH
