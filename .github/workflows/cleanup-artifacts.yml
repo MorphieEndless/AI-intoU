@@ -1,10 +1,10 @@
 name: Cleanup artifacts
 
-# The account artifact allowance is small and shared with Packages, so stale
-# build outputs from earlier runs can block new uploads. Keep the newest
-# artifact of each name and drop the rest; this only ever touches artifacts in
-# this repository.
+# Authorized one-time branch cleanup; scheduled runs apply only after merge.
 on:
+  push:
+    branches: [refactor/relay-performance]
+    paths: [.github/workflows/cleanup-artifacts.yml]
   workflow_dispatch:
   schedule:
     - cron: '17 3 * * *'
@@ -12,13 +12,14 @@ on:
 permissions:
   actions: write
   contents: read
+  pull-requests: write
 
 jobs:
   prune:
-    name: Keep newest artifact per name
+    name: Keep latest APKs and test report
     runs-on: ubuntu-latest
     steps:
-      - name: Delete older artifacts
+      - name: Delete older build artifacts
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -26,23 +27,56 @@ jobs:
           set -o pipefail
           gh api --paginate --slurp "repos/$GH_REPO/actions/artifacts?per_page=100" > "$RUNNER_TEMP/artifact-pages.json"
           python3 - <<'PYCODE'
-          import json, os, subprocess
-          pages = json.load(open(os.path.join(os.environ["RUNNER_TEMP"], "artifact-pages.json")))
+          import json, os, pathlib, subprocess
+          root = pathlib.Path(os.environ["RUNNER_TEMP"])
+          pages = json.loads((root / "artifact-pages.json").read_text())
           artifacts = [a for page in pages for a in page.get("artifacts", [])]
-          artifacts.sort(key=lambda a: a["created_at"], reverse=True)
-          keep, drop = set(), []
+          allowed = {"yingti-bridge-debug-apk", "yingti-bridge-release-apk", "android-unit-test-reports"}
+          artifacts.sort(key=lambda a: (a["created_at"], a["id"]), reverse=True)
+          keep = {}
           for artifact in artifacts:
-              if artifact["name"] in keep:
-                  drop.append(artifact)
-              else:
-                  keep.add(artifact["name"])
-          freed = 0
+              if artifact["name"] in allowed and not artifact["expired"]:
+                  keep.setdefault(artifact["name"], artifact)
+          keep_ids = {a["id"] for a in keep.values()}
+          drop = [a for a in artifacts if a["name"] in allowed and a["id"] not in keep_ids]
+          deleted, failed, freed = 0, [], 0
           for artifact in drop:
               result = subprocess.run(
                   ["gh", "api", "-X", "DELETE",
                    "repos/%s/actions/artifacts/%s" % (os.environ["GH_REPO"], artifact["id"])],
                   capture_output=True, text=True)
               if result.returncode == 0:
+                  deleted += 1
                   freed += artifact["size_in_bytes"]
-          print("kept %d, deleted %d, released %.1f MB" % (len(keep), len(drop), freed / 1e6))
+              else:
+                  failed.append(artifact["id"])
+          summary = "### Artifact cleanup result\n\n"
+          summary += "Deleted %d old build artifacts (%.1f MiB). Failed deletions: %d.\n\n" % (deleted, freed / 1024**2, len(failed))
+          summary += "Preserved newest non-expired artifact for each build type:\n"
+          for name, artifact in sorted(keep.items()):
+              summary += "- `%s`, ID `%s`, created `%s`\n" % (name, artifact["id"], artifact["created_at"])
+          if not keep:
+              summary += "- No non-expired APK/test report was available.\n"
+          summary += "\nUnrecognized artifact names, workflow logs, source history and other repositories were not modified.\n"
+          summary += "GitHub may take 6–12 hours to update storage usage.\n"
+          if failed:
+              summary += "\nFailed artifact IDs: " + ", ".join(map(str, failed)) + "\n"
+          (root / "cleanup-summary.md").write_text(summary)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as stream:
+              stream.write(summary)
+          print(summary)
+          if failed:
+              raise SystemExit(1)
           PYCODE
+
+      - name: Post cleanup result on pull request
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          HEAD_BRANCH: ${{ github.ref_name }}
+        run: |
+          [ -f "$RUNNER_TEMP/cleanup-summary.md" ] || exit 0
+          pr=$(gh pr list --head "$HEAD_BRANCH" --json number --jq '.[0].number // empty')
+          [ -n "$pr" ] || exit 0
+          gh pr comment "$pr" --body-file "$RUNNER_TEMP/cleanup-summary.md"
