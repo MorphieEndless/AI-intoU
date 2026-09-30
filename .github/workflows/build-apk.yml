@@ -81,11 +81,14 @@ jobs:
                       findings.append(case.get("classname", "") + "." + case.get("name", "") + ": " + failure.get("type", "test failure"))
                       findings.extend(line.strip() for line in (failure.text or "").splitlines() if "at com.yingti.app." in line)
           def redact(text):
+              text = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", text)
               text = re.sub(r"https?://[^\s]+", "[url]", text)
               text = re.sub(r"/(?:home|Users|workspace|opt|srv|etc)/[^\s]+", "[path]", text)
               text = re.sub(r"\b(?:\d{1,3}\.){3}\d{1,3}\b", "[address]", text)
               text = re.sub(r"(?:gh[pors]_|github_pat_|sk-)[A-Za-z0-9_-]+", "[credential]", text)
               return text[:500]
+          if not findings and lines:
+              findings = lines[-20:]
           summary = "### Android Actions failure\n\n```text\n" + "\n".join(redact(x) for x in findings[:20]) + "\n```\n\n"
           if not findings:
               summary = "### Android Actions failure\n\nNo compiler/test diagnostic was captured. See the workflow log.\n\n"
@@ -201,7 +204,7 @@ jobs:
           job=$(python3 -c 'import json,sys; print(next((str(j["id"]) for j in json.load(open(sys.argv[1]))["jobs"] if j["conclusion"] == "failure"), ""))' "$RUNNER_TEMP/jobs.json")
           [ -n "$job" ] || exit 0
           stage="download completed job log"
-          gh api "repos/$GH_REPO/actions/jobs/$job/logs" > "$RUNNER_TEMP/failed-job.log"
+          gh api "repos/$GH_REPO/actions/jobs/$job/logs" --allow-escape-sequences > "$RUNNER_TEMP/failed-job.log"
           stage="summarize completed job log"
           python3 - <<'PYCODE'
           import os, re, json, pathlib
@@ -214,6 +217,7 @@ jobs:
           if not errors:
               errors = lines[-15:]
           def redact(text):
+              text = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", text)
               text = re.sub(r"https?://[^\s]+", "[url]", text)
               text = re.sub(r"/(?:home|Users|workspace|opt|srv|etc)/[^\s]+", "[path]", text)
               text = re.sub(r"\b(?:\d{1,3}\.){3}\d{1,3}\b", "[address]", text)
