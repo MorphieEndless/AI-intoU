@@ -48,6 +48,7 @@ jobs:
 
       - name: Upload test reports
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: android-unit-test-reports
@@ -55,7 +56,7 @@ jobs:
             android/app/build/reports/tests/
             android/app/build/test-results/
           if-no-files-found: ignore
-          retention-days: 14
+          retention-days: 3
 
       - name: Report failure summary on pull request
         if: failure() && github.event_name == 'pull_request'
@@ -101,12 +102,14 @@ jobs:
         run: sha256sum app/build/outputs/apk/debug/app-debug.apk
 
       - name: Upload debug APK
+        # Storage exhaustion must not be reported as a compiler or test failure.
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: yingti-bridge-debug-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 7
 
   release:
     name: Release APK (signed)
@@ -162,12 +165,13 @@ jobs:
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
 
       - name: Upload release APK
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: yingti-bridge-release-apk
           path: android/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: warn
-          retention-days: 30
+          retention-days: 14
 
   previous-failure-diagnostics:
     name: Previous APK failure diagnostics

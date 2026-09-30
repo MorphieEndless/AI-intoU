@@ -1,0 +1,48 @@
+name: Cleanup artifacts
+
+# The account artifact allowance is small and shared with Packages, so stale
+# build outputs from earlier runs can block new uploads. Keep the newest
+# artifact of each name and drop the rest; this only ever touches artifacts in
+# this repository.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 3 * * *'
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  prune:
+    name: Keep newest artifact per name
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete older artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -o pipefail
+          gh api --paginate --slurp "repos/$GH_REPO/actions/artifacts?per_page=100" > "$RUNNER_TEMP/artifact-pages.json"
+          python3 - <<'PYCODE'
+          import json, os, subprocess
+          pages = json.load(open(os.path.join(os.environ["RUNNER_TEMP"], "artifact-pages.json")))
+          artifacts = [a for page in pages for a in page.get("artifacts", [])]
+          artifacts.sort(key=lambda a: a["created_at"], reverse=True)
+          keep, drop = set(), []
+          for artifact in artifacts:
+              if artifact["name"] in keep:
+                  drop.append(artifact)
+              else:
+                  keep.add(artifact["name"])
+          freed = 0
+          for artifact in drop:
+              result = subprocess.run(
+                  ["gh", "api", "-X", "DELETE",
+                   "repos/%s/actions/artifacts/%s" % (os.environ["GH_REPO"], artifact["id"])],
+                  capture_output=True, text=True)
+              if result.returncode == 0:
+                  freed += artifact["size_in_bytes"]
+          print("kept %d, deleted %d, released %.1f MB" % (len(keep), len(drop), freed / 1e6))
+          PYCODE
