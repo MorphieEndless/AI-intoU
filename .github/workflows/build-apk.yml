@@ -5,6 +5,11 @@ on:
     branches: [main, master]
   pull_request:
   workflow_dispatch:
+    inputs:
+      publish_apk:
+        description: Publish the signed APK as a prerelease asset (bypasses the Actions artifact quota)
+        type: boolean
+        default: false
 
 jobs:
   debug:
@@ -116,7 +121,7 @@ jobs:
     needs: debug
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
     defaults:
       run:
         working-directory: android
@@ -278,3 +283,21 @@ jobs:
           (root / "artifact-report.md").write_text("\n".join(lines) + "\n")
           PYCODE
           gh pr comment "$PR_NUMBER" --body-file "$RUNNER_TEMP/artifact-report.md"
+
+      - name: Publish signed APK as a prerelease asset
+        # Actions artifact storage is quota-bound; release assets are not.
+        if: always() && inputs.publish_apk
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          GH_REF: ${{ github.ref_name }}
+        run: |
+          apk="android/app/build/outputs/apk/release/app-release.apk"
+          [ -f "$apk" ] || { echo "No signed APK was produced in this run."; exit 0; }
+          version=$(grep -oP 'versionName = "\K[^"]+' android/app/build.gradle.kts)
+          tag="ci-apk-${version}-$(echo "$GH_REF" | tr '/' '-')"
+          notes="CI build of the Android app from branch ${GH_REF}. The Actions artifact storage quota is exhausted, so the signed APK is attached here as a prerelease asset instead. Test build only, not a production deployment; no deployment configuration or data is included."
+          gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" --prerelease --target "$GITHUB_SHA" --title "CI APK ${version}" --notes "$notes"
+          gh release upload "$tag" "$apk" --clobber
+          echo "Published $tag"

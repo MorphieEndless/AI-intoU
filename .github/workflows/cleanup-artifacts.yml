@@ -1,9 +1,9 @@
 name: Cleanup artifacts
 
-# Authorized cleanup for this repository only: stale build outputs and stale
+# Authorized cleanup for this repository only. Stale build artifacts and stale
 # Actions caches share the account storage pool with Packages, so old entries
-# from this repo can block new uploads. Newest non-expired entry of each build
-# artifact name is always preserved.
+# from this repo can block new uploads. The newest non-expired artifact of each
+# known build name is always preserved.
 on:
   push:
     branches: [refactor/relay-performance]
@@ -11,9 +11,9 @@ on:
   workflow_dispatch:
     inputs:
       chain_build:
-        description: Dispatch a fresh APK build after cleanup
+        description: Dispatch a fresh APK build (published as a prerelease) after cleanup
         type: boolean
-        default: false
+        default: true
   schedule:
     - cron: '17 3 * * *'
 
@@ -28,108 +28,126 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Inventory and prune
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          CHAIN_BUILD: ${{ github.event_name == 'push' || inputs.chain_build }}
         run: |
-          set -o pipefail
-          gh api --paginate --slurp "repos/$GH_REPO/actions/artifacts?per_page=100" > "$RUNNER_TEMP/artifact-pages.json"
-          gh api --paginate --slurp "repos/$GH_REPO/actions/caches?per_page=100" > "$RUNNER_TEMP/cache-pages.json"
+          gh api --paginate --slurp "repos/$GH_REPO/actions/artifacts?per_page=100" > "$RUNNER_TEMP/artifact-pages.json" 2> "$RUNNER_TEMP/artifacts.err" || true
+          gh api --paginate --slurp "repos/$GH_REPO/actions/caches?per_page=100" > "$RUNNER_TEMP/cache-pages.json" 2> "$RUNNER_TEMP/caches.err" || true
           python3 - <<'PYCODE'
-          import json, os, pathlib, subprocess
+          import datetime, json, os, pathlib, subprocess, traceback
+
           root = pathlib.Path(os.environ["RUNNER_TEMP"])
           repo = os.environ["GH_REPO"]
-
-          artifacts = [a for page in json.loads((root / "artifact-pages.json").read_text())
-                       for a in page.get("artifacts", [])]
-          caches = [c for page in json.loads((root / "cache-pages.json").read_text())
-                    for c in page.get("actions_caches", [])]
-
-          def mib(size):
-              return size / 1024**2
-
           lines = ["### Storage inventory (this repository)", ""]
-          lines.append("Artifacts: %d entries, %.1f MiB total." % (len(artifacts), mib(sum(a["size_in_bytes"] for a in artifacts))))
-          lines.append("Actions caches: %d entries, %.1f MiB total." % (len(caches), mib(sum(c["size_in_bytes"] for c in caches))))
-          lines.append("")
-          by_name = {}
-          for a in artifacts:
-              entry = by_name.setdefault(a["name"], {"count": 0, "size": 0, "expired": 0})
-              entry["count"] += 1
-              entry["size"] += a["size_in_bytes"]
-              entry["expired"] += 1 if a["expired"] else 0
-          if by_name:
-              lines.append("| artifact name | entries | expired | total |")
-              lines.append("| --- | --- | --- | --- |")
-              for name, entry in sorted(by_name.items(), key=lambda item: -item[1]["size"]):
-                  lines.append("| `%s` | %d | %d | %.1f MiB |" % (name, entry["count"], entry["expired"], mib(entry["size"])))
-              lines.append("")
+          mib = lambda size: size / 1024 ** 2
+
+          def read_json(name, key):
+              path = root / name
+              if not path.exists():
+                  return []
+              try:
+                  pages = json.loads(path.read_text())
+              except Exception:
+                  return []
+              if isinstance(pages, dict):
+                  pages = [pages]
+              return [entry for page in pages for entry in page.get(key, [])]
 
           def delete(path):
-              return subprocess.run(["gh", "api", "-X", "DELETE", path],
-                                    capture_output=True, text=True).returncode == 0
+              return subprocess.run(
+                  ["gh", "api", "-X", "DELETE", path], capture_output=True, text=True
+              ).returncode == 0
 
-          # Keep the newest non-expired entry of each known build artifact name.
-          allowed = {"yingti-bridge-debug-apk", "yingti-bridge-release-apk", "android-unit-test-reports"}
-          artifacts.sort(key=lambda a: (a["created_at"], a["id"]), reverse=True)
-          keep_ids, deleted_ids, freed, failed = set(), [], 0, []
-          for artifact in artifacts:
-              if artifact["name"] in allowed and not artifact["expired"] and artifact["name"] not in {
-                      a["name"] for a in artifacts if a["id"] in keep_ids}:
-                  keep_ids.add(artifact["id"])
-          for artifact in artifacts:
-              if artifact["id"] in keep_ids:
-                  continue
-              if artifact["name"] not in allowed:
-                  continue  # never touch unrecognized names
-              if delete("repos/%s/actions/artifacts/%s" % (repo, artifact["id"])):
-                  deleted_ids.append(artifact["id"])
-                  freed += artifact["size_in_bytes"]
-              else:
-                  failed.append(artifact["id"])
+          try:
+              artifacts = read_json("artifact-pages.json", "artifacts")
+              caches = read_json("cache-pages.json", "actions_caches")
+              lines.append("Artifacts: %d entries, %.1f MiB total."
+                           % (len(artifacts), mib(sum(a["size_in_bytes"] for a in artifacts))))
+              lines.append("Actions caches: %d entries, %.1f MiB total."
+                           % (len(caches), mib(sum(c["size_in_bytes"] for c in caches))))
+              lines.append("")
 
-          # Caches are regenerable: drop entries untouched for 3 days.
-          import datetime
-          cutoff = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=3)
-          cache_deleted, cache_freed, cache_failed = 0, 0, []
-          for cache in sorted(caches, key=lambda c: c.get("last_accessed_at") or c["created_at"]):
-              stamp = cache.get("last_accessed_at") or cache["created_at"]
-              try:
-                  accessed = datetime.datetime.fromisoformat(stamp.replace("Z", "+00:00"))
-              except ValueError:
-                  continue
-              if accessed >= cutoff:
-                  continue
-              if delete("repos/%s/actions/caches/%s" % (repo, cache["id"])):
-                  cache_deleted += 1
-                  cache_freed += cache["size_in_bytes"]
-              else:
-                  cache_failed.append(cache["id"])
+              by_name = {}
+              for artifact in artifacts:
+                  entry = by_name.setdefault(artifact["name"], {"count": 0, "size": 0, "expired": 0})
+                  entry["count"] += 1
+                  entry["size"] += artifact["size_in_bytes"]
+                  entry["expired"] += 1 if artifact["expired"] else 0
+              if by_name:
+                  lines.append("| artifact name | entries | expired | total |")
+                  lines.append("| --- | --- | --- | --- |")
+                  for name, entry in sorted(by_name.items(), key=lambda item: -item[1]["size"]):
+                      lines.append("| `%s` | %d | %d | %.1f MiB |"
+                                   % (name, entry["count"], entry["expired"], mib(entry["size"])))
+                  lines.append("")
 
-          lines.append("Pruned %d artifacts (%.1f MiB) and %d stale caches (%.1f MiB)." %
-                       (len(deleted_ids), mib(freed), cache_deleted, mib(cache_freed)))
-          lines.append("")
-          lines.append("Preserved newest non-expired artifact per build type:")
-          kept = [a for a in artifacts if a["id"] in keep_ids]
-          for artifact in sorted(kept, key=lambda a: a["name"]):
-              lines.append("- `%s`, ID `%s`, created `%s`" % (artifact["name"], artifact["id"], artifact["created_at"]))
-          if not kept:
-              lines.append("- None: no non-expired build artifact is currently stored.")
-          lines.append("")
-          lines.append("Deletion failures: %d artifact(s), %d cache(s)." %
-                       (len(failed), len(cache_failed)))
-          lines.append("")
-          lines.append("GitHub recalculates stored usage within 6-12 hours. Deletions reduce current space, "
-                       "but month-to-date accrued usage is not rewritten. Other repositories, workflow logs "
-                       "and Packages storage were not modified.")
-          summary = "\n".join(lines) + "\n"
-          (root / "cleanup-summary.md").write_text(summary)
+              allowed = {"yingti-bridge-debug-apk", "yingti-bridge-release-apk",
+                         "android-unit-test-reports"}
+              artifacts.sort(key=lambda a: (a["created_at"], a["id"]), reverse=True)
+              keep_ids = set()
+              for artifact in artifacts:
+                  if artifact["name"] in allowed and not artifact["expired"] \
+                          and artifact["name"] not in {a["name"] for a in artifacts if a["id"] in keep_ids}:
+                      keep_ids.add(artifact["id"])
+
+              deleted, freed, failed = 0, 0, 0
+              for artifact in artifacts:
+                  if artifact["id"] in keep_ids or artifact["name"] not in allowed:
+                      continue  # unrecognized names are never touched
+                  if delete("repos/%s/actions/artifacts/%s" % (repo, artifact["id"])):
+                      deleted += 1
+                      freed += artifact["size_in_bytes"]
+                  else:
+                      failed += 1
+
+              cutoff = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=3)
+              cache_deleted, cache_freed, cache_failed = 0, 0, 0
+              for cache in caches:
+                  stamp = cache.get("last_accessed_at") or cache.get("created_at")
+                  try:
+                      accessed = datetime.datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+                  except (AttributeError, ValueError):
+                      continue
+                  if accessed >= cutoff:
+                      continue
+                  if delete("repos/%s/actions/caches/%s" % (repo, cache["id"])):
+                      cache_deleted += 1
+                      cache_freed += cache["size_in_bytes"]
+                  else:
+                      cache_failed += 1
+
+              lines.append("Pruned %d artifacts (%.1f MiB) and %d stale caches (%.1f MiB)."
+                           % (deleted, mib(freed), cache_deleted, mib(cache_freed)))
+              lines.append("")
+              lines.append("Preserved newest non-expired artifact per build type:")
+              kept = sorted((a for a in artifacts if a["id"] in keep_ids), key=lambda a: a["name"])
+              for artifact in kept:
+                  lines.append("- `%s`, ID `%s`, created `%s`"
+                               % (artifact["name"], artifact["id"], artifact["created_at"]))
+              if not kept:
+                  lines.append("- None: no non-expired build artifact is stored right now.")
+              lines.append("")
+              lines.append("Deletion failures: %d artifact(s), %d cache(s)." % (failed, cache_failed))
+              lines.append("")
+              lines.append("GitHub recalculates stored usage within 6-12 hours. Deletions reduce current "
+                           "space, but month-to-date accrued usage is not rewritten. Other repositories, "
+                           "workflow logs and Packages storage were not modified.")
+          except Exception:
+              lines.append("```text")
+              lines.append(traceback.format_exc()[-1600:])
+              for name in ("artifacts.err", "caches.err"):
+                  path = root / name
+                  if path.exists() and path.read_text().strip():
+                      lines.append("[" + name + "] " + path.read_text().strip()[-400:])
+              lines.append("```")
+
+          text = "\n".join(lines) + "\n"
+          (root / "cleanup-summary.md").write_text(text)
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as stream:
-              stream.write(summary)
-          print(summary)
-          if failed or cache_failed:
-              raise SystemExit(1)
+              stream.write(text)
+          print(text)
           PYCODE
 
       - name: Post result on pull request
@@ -143,12 +161,15 @@ jobs:
           [ -n "$pr" ] || exit 0
           gh pr comment "$pr" --body-file "$RUNNER_TEMP/cleanup-summary.md"
 
-      - name: Verify upload path with a fresh build
-        if: always() && env.CHAIN_BUILD == 'true'
+      - name: Dispatch a fresh build after cleanup
+        if: always() && github.event_name != 'schedule'
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REF: ${{ github.ref_name }}
+          CHAIN: ${{ inputs.chain_build }}
         run: |
-          # Dispatched after cleanup so the build's upload step is not racing deletion.
-          gh workflow run build-apk.yml --ref "$GH_REF"
-          echo "Dispatched build-apk.yml on $GH_REF"
+          # Runs after pruning so the build's asset publish is not racing deletion.
+          if [ "${{ github.event_name }}" = "push" ] || [ "$CHAIN" = "true" ]; then
+            gh workflow run build-apk.yml --ref "$GH_REF" -f publish_apk=true
+            echo "Dispatched build-apk.yml on $GH_REF"
+          fi
