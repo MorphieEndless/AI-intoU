@@ -235,7 +235,7 @@ class MainActivity : ComponentActivity() {
                                         onCopy = ::copyToClipboard,
                                         onClearHistory = app.history::clear,
                                     )
-                            }
+                                }
                             }
                         }
                     }
