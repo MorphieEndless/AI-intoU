@@ -286,7 +286,8 @@ jobs:
 
       - name: Publish signed APK as a prerelease asset
         # Actions artifact storage is quota-bound; release assets are not.
-        if: always() && inputs.publish_apk
+        # Manual dispatch only, and never on the default branch.
+        if: always() && github.event_name == 'workflow_dispatch' && github.ref_name != 'main' && github.ref_name != 'master' 
         working-directory: .
         env:
           GH_TOKEN: ${{ github.token }}

@@ -163,13 +163,16 @@ jobs:
 
       - name: Dispatch a fresh build after cleanup
         if: always() && github.event_name != 'schedule'
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REF: ${{ github.ref_name }}
           CHAIN: ${{ inputs.chain_build }}
         run: |
-          # Runs after pruning so the build's asset publish is not racing deletion.
+          # Runs after pruning so the build is not racing deletion. No dispatch
+          # inputs are passed: the default branch does not declare them yet, and
+          # unlisted inputs are rejected with 422.
           if [ "${{ github.event_name }}" = "push" ] || [ "$CHAIN" = "true" ]; then
-            gh workflow run build-apk.yml --ref "$GH_REF" -f publish_apk=true
+            gh workflow run build-apk.yml --ref "$GH_REF"
             echo "Dispatched build-apk.yml on $GH_REF"
           fi
