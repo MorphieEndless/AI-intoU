@@ -85,11 +85,15 @@ fun DashboardScreen(
     onRawFrame: (String) -> Unit = {},
     onSuction: (Double, Int) -> Unit = { _, _ -> },
 ) {
-    var slider by remember(state.intensity) { mutableFloatStateOf(state.intensity / 10f) }
+    var slider by remember { mutableFloatStateOf(state.intensity / 10f) }
+    var dragging by remember { mutableStateOf(false) }
+    LaunchedEffect(state.intensity) { if (!dragging) slider = state.intensity / 10f }
     var suctionPanel by remember { mutableStateOf(SuctionPanel.TOY) }
     var suctionMode by remember(state.suctionMode) { mutableIntStateOf(state.suctionMode.coerceIn(1, 8)) }
-    var suctionLevel by remember(state.suctionIntensity) {
-        mutableFloatStateOf(state.suctionIntensity.coerceIn(0, 5).toFloat())
+    var suctionLevel by remember { mutableFloatStateOf(state.suctionIntensity.coerceIn(0, 5).toFloat()) }
+    var suctionDragging by remember { mutableStateOf(false) }
+    LaunchedEffect(state.suctionIntensity) {
+        if (!suctionDragging) suctionLevel = state.suctionIntensity.coerceIn(0, 5).toFloat()
     }
     val selectedToy = toyPresets.indexOfFirst {
         state.suctionIntensity > 0 && it.mode == state.suctionMode && it.level == state.suctionIntensity
@@ -166,8 +170,8 @@ fun DashboardScreen(
                     }
                     Slider(
                         value = slider,
-                        onValueChange = { slider = it },
-                        onValueChangeFinished = { onVibrate(slider.toDouble()) },
+                        onValueChange = { dragging = true; slider = it },
+                        onValueChangeFinished = { dragging = false; onVibrate(slider.toDouble()) },
                         steps = 9,
                     )
                     val level = (slider * 10).roundToInt()
@@ -204,9 +208,10 @@ fun DashboardScreen(
                     onSuction(preset.level / 5.0, preset.mode)
                 },
                 onModeChange = { suctionMode = it },
-                onLevelChange = { suctionLevel = it },
-                onSuction = onSuction,
+                onLevelChange = { suctionDragging = true; suctionLevel = it },
+                onSuction = { value, mode -> suctionDragging = false; onSuction(value, mode) },
                 onStopSuction = {
+                    suctionDragging = false
                     suctionLevel = 0f
                     onSuction(0.0, suctionMode)
                 },

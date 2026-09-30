@@ -388,6 +388,7 @@ async def _handle_phone_ws(ws: WebSocket):
         return
 
     user_id = None
+    session = None
     try:
         # Wait for auth message
         raw = await asyncio.wait_for(ws.receive_text(), timeout=10.0)
@@ -436,7 +437,7 @@ async def _handle_phone_ws(ws: WebSocket):
                 msg_type = msg.get("type")
 
                 if msg_type == "heartbeat_pong":
-                    await registry.update_heartbeat(user_id)
+                    await registry.update_heartbeat(user_id, session)
                 elif msg_type == "command_ack":
                     ack = CommandAck(
                         success=msg.get("success", True),
@@ -446,14 +447,14 @@ async def _handle_phone_ws(ws: WebSocket):
                     )
                     if ack.request_id:
                         session.resolve_ack(ack.request_id, ack)
-                elif msg_type == "phone_emergency_stop":
+                elif msg_type == "phone_emergency_stop" and await registry.is_current(user_id, session):
                     # Phone-initiated emergency stop (volume keys, etc.)
                     # Tell the governor so heat stops accumulating
                     governor.record_stop(user_id)
                     log.warning(f"Phone emergency stop: user={user_id}")
                 elif msg_type == "device_list":
                     devices = msg.get("devices", [])
-                    await registry.update_devices(user_id, devices)
+                    await registry.update_devices(user_id, devices, session)
                     log.info(f"Devices updated: user={user_id}, count={len(devices)}")
 
             except WebSocketDisconnect:
@@ -468,8 +469,7 @@ async def _handle_phone_ws(ws: WebSocket):
     except Exception as e:
         log.error(f"Phone WS error: {e}")
     finally:
-        if user_id:
-            await registry.unregister(user_id)
+        if session and await registry.unregister(user_id, session):
             governor.remove_user(user_id)
             log.info(f"Phone disconnected: user={user_id}")
         await release_ws_ip_slot(ip)

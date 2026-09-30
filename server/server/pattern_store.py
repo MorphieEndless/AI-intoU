@@ -8,7 +8,7 @@ Patterns are stored per user as JSON files under config.PATTERNS_DIR.
 Validation mirrors the phone's custom_pattern checks (CommandDispatcher.kt):
   - 1..128 steps
   - each step duration_ms >= 100
-  - repeat 1..20
+  - repeat 1..60
   - total duration (sum(steps) * repeat) <= 10 minutes
 The phone re-validates on receipt — the server is the first gate, not the last.
 """
@@ -28,7 +28,7 @@ log = logging.getLogger("signal_bridge.patterns")
 
 MIN_STEP_MS = 100
 MAX_STEPS = 128
-MAX_REPEAT = 20
+MAX_REPEAT = 60
 MAX_TOTAL_MS = 10 * 60 * 1000  # 10 minutes
 
 

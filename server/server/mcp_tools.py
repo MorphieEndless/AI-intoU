@@ -479,7 +479,7 @@ def _make_pattern_handler(pattern_name: str):
         output_type: str = "vibrate",
         intensity: float = 0.6,
         duration: float = 10,
-        hold_seconds: float = 0,
+        hold_seconds: float = 10,
         feature_index: Optional[int] = None,
         mode: Any = 5,
         **kw,
@@ -533,14 +533,14 @@ _register_tool(
 _register_tool(
     "escalate",
     "Apply linear interpolation from current output level to target level over duration; optionally maintain target after transition. "
-    "Use hold_seconds to auto-stop after holding (0 = hold indefinitely until stop command). "
+    "Default hold_seconds is 10 (auto-stop); 0 = hold indefinitely until stop command. "
     "Works with any output type (default: vibrate).",
     {k: v for k, v in _PATTERN_PARAMS.items() if k != "intensity"}
     | {
         "intensity": _numeric_schema("Peak intensity to ramp up to", 1.0),
         "hold_seconds": _numeric_schema(
-            "Seconds to hold at peak after ramp completes. 0 = hold indefinitely until explicit stop",
-            0,
+            "Seconds to hold at peak after ramp completes. Default 10; explicit 0 holds until stop",
+            10,
         ),
     },
     required=["device"],
@@ -623,7 +623,7 @@ _PATTERN_STEPS_PARAM = {
         "repeat": {
             "type": "integer",
             "minimum": 1,
-            "maximum": 20,
+            "maximum": 60,
             "default": 1,
             "description": "How many times the step sequence repeats",
         },

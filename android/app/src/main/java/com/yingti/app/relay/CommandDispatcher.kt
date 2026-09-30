@@ -16,13 +16,15 @@ class CommandDispatcher(
     private val ble: BleController,
     private val scope: CoroutineScope,
     private val history: ActivityStore,
-) {
+) : RelayCommands {
+    override suspend fun dispatch(command: JSONObject): JSONObject = dispatch(command, OperationSource.AI)
+
     private var activeJob: Job? = null
     private var timedStop: Job? = null
 
     private val commandMutex = Mutex()
 
-    suspend fun dispatch(command: JSONObject, source: OperationSource = OperationSource.AI): JSONObject = commandMutex.withLock {
+    suspend fun dispatch(command: JSONObject, source: OperationSource): JSONObject = commandMutex.withLock {
         val type = command.optString("type")
         val requestId = command.optString("request_id").takeIf { it.isNotBlank() }
         // Only store whitelisted labels and numbers, never raw JSON, server errors or tokens.
@@ -151,7 +153,7 @@ class CommandDispatcher(
         val name = cmd.optString("pattern", "pulse")
         val intensity = numericField(cmd, "intensity", 0.6).coerceIn(0.0, 1.0)
         val duration = numericField(cmd, "duration", 10.0).coerceAtLeast(0.0)
-        val hold = numericField(cmd, "hold_seconds", 0.0).coerceAtLeast(0.0)
+        val hold = numericField(cmd, "hold_seconds", 10.0).coerceAtLeast(0.0)
         if (name !in setOf("pulse", "wave", "escalate")) return ack(false, "Unknown pattern: $name", requestId)
 
         cancelJobs()
@@ -308,7 +310,7 @@ class CommandDispatcher(
         return mode
     }
 
-    fun deviceList(): JSONObject = JSONObject().put("type", "device_list").put(
+    override fun deviceList(): JSONObject = JSONObject().put("type", "device_list").put(
         "devices", JSONArray().put(
             JSONObject()
                 .put("short_name", "yingti")

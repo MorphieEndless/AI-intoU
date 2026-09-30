@@ -26,6 +26,10 @@ import com.yingti.app.auth.ConnectionConfig
 import com.yingti.app.relay.RelayService
 import com.yingti.app.ui.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.distinctUntilChanged
 
 enum class AppScreen { DASHBOARD, PATTERNS, LOGS, SETTINGS }
 
@@ -34,13 +38,27 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         val app = application as YingtiApp
         setContent {
+            val ready by app.ready.collectAsStateWithLifecycle()
+            val initializationError by app.initializationError.collectAsStateWithLifecycle()
+            if (!ready) {
+                YingtiTheme {
+                    Box(Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.Center) {
+                        if (initializationError == null) androidx.compose.material3.CircularProgressIndicator()
+                        else androidx.compose.material3.Text(initializationError.orEmpty())
+                    }
+                }
+                return@setContent
+            }
             val context = LocalContext.current
             var darkTheme by remember { mutableStateOf(UiPrefs.darkTheme(context)) }
             var paletteKey by remember { mutableStateOf(UiPrefs.paletteKey(context)) }
             var devMode by remember { mutableStateOf(UiPrefs.devMode(context)) }
             YingtiTheme(darkTheme = darkTheme, paletteKey = paletteKey) {
                 val scope = rememberCoroutineScope()
-                val bridge by AppState.state.collectAsStateWithLifecycle()
+                val runningFlow = remember { AppState.state.map { it.serviceRunning }.distinctUntilChanged() }
+                val serviceRunning by runningFlow.collectAsStateWithLifecycle(initialValue = false)
+                var connectionConfig by remember { mutableStateOf(app.tokenStore.currentConfig()) }
+                var savedPassword by remember { mutableStateOf(app.tokenStore.savedPassword) }
                 var configured by remember { mutableStateOf(app.tokenStore.isConfigured) }
                 var screen by rememberSaveable { mutableStateOf(if (configured) AppScreen.DASHBOARD else AppScreen.SETTINGS) }
                 var loading by remember { mutableStateOf(false) }
@@ -92,11 +110,15 @@ class MainActivity : ComponentActivity() {
                             .onSuccess { result ->
                                 connectionStatus = result.message
                                 val wasConfigured = configured
-                                app.tokenStore.save(result)
-                                app.tokenStore.savedPassword = if (rememberPassword) password else ""
+                                connectionConfig = withContext(Dispatchers.IO) {
+                                    app.tokenStore.save(result)
+                                    app.tokenStore.savedPassword = if (rememberPassword) password else ""
+                                    app.tokenStore.currentConfig()
+                                }
+                                savedPassword = if (rememberPassword) password else ""
                                 configured = true
                                 screen = AppScreen.DASHBOARD
-                                if (wasConfigured && bridge.serviceRunning) {
+                                if (wasConfigured && serviceRunning) {
                                     RelayService.send(context, RelayService.ACTION_RESTART)
                                 }
                             }
@@ -112,10 +134,10 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                val history by app.history.state.collectAsStateWithLifecycle()
                 fun logout() {
                     RelayService.send(context, RelayService.ACTION_SHUTDOWN)
                     app.tokenStore.clearSession()
+                    connectionConfig = connectionConfig.copy(token = "")
                     configured = false
                     connectionStatus = null
                     connectionError = null
@@ -125,29 +147,32 @@ class MainActivity : ComponentActivity() {
                 Box(Modifier.fillMaxSize()) {
                     AppNavigation(screen, { screen = it }) {
                         when (screen) {
-                            AppScreen.DASHBOARD -> DashboardScreen(
-                                state = bridge,
-                                server = app.tokenStore.serverBaseUrl,
-                                darkTheme = darkTheme,
-                                devMode = false,
-                                onToggleTheme = {
-                                    darkTheme = !darkTheme
-                                    UiPrefs.setDarkTheme(context, darkTheme)
-                                },
-                                onScan = { RelayService.send(context, RelayService.ACTION_SCAN) },
-                                onVibrate = { RelayService.send(context, RelayService.ACTION_VIBRATE, it) },
-                                onStop = { RelayService.send(context, RelayService.ACTION_STOP_ALL) },
-                                onRawFrame = { RelayService.sendRaw(context, it) },
-                                onSuction = { intensity, mode ->
-                                    RelayService.send(context, RelayService.ACTION_SUCTION, intensity, mode)
-                                },
-                                onSettings = {
-                                    connectionStatus = null
-                                    connectionError = null
-                                    screen = AppScreen.SETTINGS
-                                },
-                                onLogout = ::logout,
-                            )
+                            AppScreen.DASHBOARD -> {
+                                val bridge by AppState.state.collectAsStateWithLifecycle()
+                                DashboardScreen(
+                                    state = bridge,
+                                    server = connectionConfig.normalizedBaseUrl,
+                                    darkTheme = darkTheme,
+                                    devMode = false,
+                                    onToggleTheme = {
+                                        darkTheme = !darkTheme
+                                        UiPrefs.setDarkTheme(context, darkTheme)
+                                    },
+                                    onScan = { RelayService.send(context, RelayService.ACTION_SCAN) },
+                                    onVibrate = { RelayService.send(context, RelayService.ACTION_VIBRATE, it) },
+                                    onStop = { RelayService.send(context, RelayService.ACTION_STOP_ALL) },
+                                    onRawFrame = { RelayService.sendRaw(context, it) },
+                                    onSuction = { intensity, mode ->
+                                        RelayService.send(context, RelayService.ACTION_SUCTION, intensity, mode)
+                                    },
+                                    onSettings = {
+                                        connectionStatus = null
+                                        connectionError = null
+                                        screen = AppScreen.SETTINGS
+                                    },
+                                    onLogout = ::logout,
+                                )
+                            }
                             AppScreen.PATTERNS -> if (!configured) {
                                 PatternLibraryPlaceholder(onSettings = {
                                     connectionStatus = null
@@ -155,51 +180,62 @@ class MainActivity : ComponentActivity() {
                                     screen = AppScreen.SETTINGS
                                 })
                             } else {
+                                val connectedFlow = remember {
+                                    AppState.state.map { it.serviceRunning && it.bleStatus == "已连接" }.distinctUntilChanged()
+                                }
+                                val connected by connectedFlow.collectAsStateWithLifecycle(initialValue = false)
                                 PatternLibraryScreen(
-                                    app.tokenStore.currentConfig(),
-                                    bridge.serviceRunning && bridge.bleStatus.contains("已连接"),
+                                    connectionConfig,
+                                    connected,
                                     app.history,
                                     { RelayService.playPattern(context, it) }
                                 )
                             }
-                            AppScreen.LOGS -> ActivityScreen(history)
-                            AppScreen.SETTINGS -> SettingsPages(
-                                devMode, configured, bridge.lastMessage,
-                                { RelayService.sendRaw(context, it) }, ::logout
-                            ) {
-                                ConnectionSettingsScreen(
-                                    initialConfig = app.tokenStore.currentConfig(),
-                                    initialPassword = app.tokenStore.savedPassword,
-                                    loading = loading,
-                                    status = connectionStatus,
-                                    error = connectionError,
-                                    canCancel = false,
-                                    darkTheme = darkTheme,
-                                    paletteKey = paletteKey,
-                                    devMode = devMode,
-                                    onDarkThemeChange = {
-                                        darkTheme = it
-                                        UiPrefs.setDarkTheme(context, it)
-                                    },
-                                    onPaletteChange = {
-                                        paletteKey = it
-                                        UiPrefs.setPaletteKey(context, it)
-                                    },
-                                    onDevModeChange = {
-                                        devMode = it
-                                        UiPrefs.setDevMode(context, it)
-                                    },
-                                    onCancel = {
-                                        connectionStatus = null
-                                        connectionError = null
-                                        screen = AppScreen.DASHBOARD
-                                    },
-                                    onSave = { config, password, rememberPassword ->
-                                        saveAndStart(config, password, rememberPassword)
-                                    },
-                                    onCopy = ::copyToClipboard,
-                                    onClearHistory = app.history::clear,
-                                )
+                            AppScreen.LOGS -> {
+                                val history by app.history.state.collectAsStateWithLifecycle()
+                                ActivityScreen(history)
+                            }
+                            AppScreen.SETTINGS -> {
+                                val messageFlow = remember { AppState.state.map { it.lastMessage }.distinctUntilChanged() }
+                                val lastMessage by messageFlow.collectAsStateWithLifecycle(initialValue = "")
+                                SettingsPages(
+                                    devMode, configured, lastMessage,
+                                    { RelayService.sendRaw(context, it) }, ::logout
+                                ) {
+                                    ConnectionSettingsScreen(
+                                        initialConfig = connectionConfig,
+                                        initialPassword = savedPassword,
+                                        loading = loading,
+                                        status = connectionStatus,
+                                        error = connectionError,
+                                        canCancel = false,
+                                        darkTheme = darkTheme,
+                                        paletteKey = paletteKey,
+                                        devMode = devMode,
+                                        onDarkThemeChange = {
+                                            darkTheme = it
+                                            UiPrefs.setDarkTheme(context, it)
+                                        },
+                                        onPaletteChange = {
+                                            paletteKey = it
+                                            UiPrefs.setPaletteKey(context, it)
+                                        },
+                                        onDevModeChange = {
+                                            devMode = it
+                                            UiPrefs.setDevMode(context, it)
+                                        },
+                                        onCancel = {
+                                            connectionStatus = null
+                                            connectionError = null
+                                            screen = AppScreen.DASHBOARD
+                                        },
+                                        onSave = { config, password, rememberPassword ->
+                                            saveAndStart(config, password, rememberPassword)
+                                        },
+                                        onCopy = ::copyToClipboard,
+                                        onClearHistory = app.history::clear,
+                                    )
+                            }
                             }
                         }
                     }

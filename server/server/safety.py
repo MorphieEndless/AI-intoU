@@ -100,7 +100,6 @@ class DeadManSwitch:
     async def _emergency_stop(self, user_id: str, session):
         """Send stop-all and disconnect the session."""
         log.critical(f"EMERGENCY STOP for user {user_id} — all devices halted")
-        governor.record_stop(user_id)
 
         try:
             stop_cmd = {"type": "stop", "device": "all", "emergency": True}
@@ -113,8 +112,8 @@ class DeadManSwitch:
         except Exception:
             pass
 
-        await registry.unregister(user_id)
-        governor.remove_user(user_id)
+        if await registry.unregister(user_id, session):
+            governor.remove_user(user_id)
 
 
 # Singleton
