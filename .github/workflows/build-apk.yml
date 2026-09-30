@@ -247,6 +247,39 @@ jobs:
       actions: read
       pull-requests: write
     steps:
+      - name: Report release assets for this branch
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_BRANCH: ${{ github.head_ref || github.ref_name }}
+        run: |
+          gh api --paginate --slurp "repos/$GH_REPO/releases?per_page=50" > "$RUNNER_TEMP/releases.json" || echo '[]' > "$RUNNER_TEMP/releases.json"
+          python3 - <<'PYCODE'
+          import json, os, pathlib
+          root = pathlib.Path(os.environ["RUNNER_TEMP"])
+          pages = json.loads((root / "releases.json").read_text() or "[]")
+          releases = [r for page in (pages if isinstance(pages, list) else [pages]) for r in page] if pages else []
+          ci = [r for r in releases if r.get("tag_name", "").startswith("ci-apk-")]
+          lines = ["### Release assets (downloadable APKs)", ""]
+          if ci:
+              for release in sorted(ci, key=lambda r: r.get("published_at") or "", reverse=True)[:3]:
+                  lines.append("`%s`%s" % (release["tag_name"], " (draft)" if release.get("draft") else ""))
+                  assets = release.get("assets") or []
+                  if not assets:
+                      lines.append("  - no asset attached")
+                  for asset in assets:
+                      lines.append("  - `%s`, %.1f MiB, downloads: %d" % (
+                          asset["name"], asset["size"] / 1024**2, asset.get("download_count", 0)))
+              lines.append("")
+              lines.append("Download from the repository Releases page or the API asset URL.")
+          else:
+              lines.append("No `ci-apk-*` release exists yet, so no APK is downloadable from Releases.")
+          (root / "release-report.md").write_text("\n".join(lines) + "\n")
+          PYCODE
+          gh pr comment "$PR_NUMBER" --body-file "$RUNNER_TEMP/release-report.md" --edit-last --create-if-none
+
       - name: Report artifact availability for this run
         env:
           GH_TOKEN: ${{ github.token }}
