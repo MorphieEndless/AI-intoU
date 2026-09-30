@@ -175,20 +175,34 @@ jobs:
       pull-requests: write
     steps:
       - name: Retrieve completed failure logs
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           HEAD_BRANCH: ${{ github.head_ref }}
         run: |
+          stage="list completed runs"
+          fail_diagnostics() {
+            printf '### Actions diagnostics unavailable\n\nStage: %s\n\n```text\n' "$stage" > "$RUNNER_TEMP/diagnostics-error.md"
+            tail -n 5 "$RUNNER_TEMP/diagnostics-error.log" | sed -E 's#https?://[^ ]+#[url]#g; s#/(home|workspace|opt|srv|etc)/[^ ]+#[path]#g' >> "$RUNNER_TEMP/diagnostics-error.md"
+            printf '\n```\n' >> "$RUNNER_TEMP/diagnostics-error.md"
+            gh pr comment "$PR_NUMBER" --body-file "$RUNNER_TEMP/diagnostics-error.md" || true
+            exit 0
+          }
+          exec 2> >(tee "$RUNNER_TEMP/diagnostics-error.log" >&2)
+          trap fail_diagnostics ERR
           gh api --method GET "repos/$GH_REPO/actions/workflows/build-apk.yml/runs" \
             -f branch="$HEAD_BRANCH" -f status=completed -f per_page=5 > "$RUNNER_TEMP/runs.json"
           previous=$(python3 -c 'import json,sys; print(next((str(r["id"]) for r in json.load(open(sys.argv[1]))["workflow_runs"] if r["conclusion"] == "failure"), ""))' "$RUNNER_TEMP/runs.json")
           [ -n "$previous" ] || exit 0
+          stage="list failed jobs"
           gh api "repos/$GH_REPO/actions/runs/$previous/jobs" > "$RUNNER_TEMP/jobs.json"
           job=$(python3 -c 'import json,sys; print(next((str(j["id"]) for j in json.load(open(sys.argv[1]))["jobs"] if j["conclusion"] == "failure"), ""))' "$RUNNER_TEMP/jobs.json")
           [ -n "$job" ] || exit 0
+          stage="download completed job log"
           gh api "repos/$GH_REPO/actions/jobs/$job/logs" > "$RUNNER_TEMP/failed-job.log"
+          stage="summarize completed job log"
           python3 - <<'PYCODE'
           import os, re, json, pathlib
           root = pathlib.Path(os.environ["RUNNER_TEMP"])
