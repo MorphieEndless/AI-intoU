@@ -16,7 +16,7 @@ jobs:
     name: Debug APK (test + assemble)
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       pull-requests: write
     defaults:
       run:
@@ -50,6 +50,26 @@ jobs:
         run: |
           set -o pipefail
           ./gradlew --no-daemon assembleDebug 2>&1 | tee -a "$RUNNER_TEMP/android-build.log"
+
+
+      - name: Publish debug APK as a prerelease asset
+        # Actions artifact storage is quota-bound; release assets are not.
+        if: always() && github.ref_name != 'main' && github.ref_name != 'master'
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          GH_REF: ${{ github.head_ref || github.ref_name }}
+        run: |
+          apk="android/app/build/outputs/apk/debug/app-debug.apk"
+          [ -f "$apk" ] || { echo "No debug APK was produced in this run."; exit 0; }
+          version=$(grep -oP 'versionName = "\K[^"]+' android/app/build.gradle.kts || true)
+          version=${version:-unknown}
+          tag="ci-apk-${version}-$(echo "$GH_REF" | tr '/' '-')"
+          notes="CI build of the Android app from branch ${GH_REF}. The Actions artifact storage quota is exhausted, so the APK is attached here as a prerelease asset instead. Debug-signed test build, not a production deployment; no deployment configuration or data is included. Installing it over a release-signed install requires uninstalling first."
+          gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" --prerelease --target "$GITHUB_SHA" --title "CI APK ${version}" --notes "$notes"
+          gh release upload "$tag" "$apk" --clobber
+          echo "Published $tag"
 
       - name: Upload test reports
         if: always()
@@ -325,7 +345,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          GH_REF: ${{ github.ref_name }}
+          GH_REF: ${{ github.head_ref || github.ref_name }}
         run: |
           apk="android/app/build/outputs/apk/release/app-release.apk"
           [ -f "$apk" ] || { echo "No signed APK was produced in this run."; exit 0; }
