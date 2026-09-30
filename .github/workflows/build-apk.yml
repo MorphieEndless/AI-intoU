@@ -232,3 +232,49 @@ jobs:
           (root / "previous-failure.md").write_text(summary)
           PYCODE
           gh pr comment "$PR_NUMBER" --body-file "$RUNNER_TEMP/previous-failure.md"
+
+  artifact-report:
+    name: Artifact upload result
+    needs: [debug]
+    if: always() && github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      pull-requests: write
+    steps:
+      - name: Report artifact availability for this run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          gh api "repos/$GH_REPO/actions/runs/$RUN_ID/artifacts" > "$RUNNER_TEMP/artifacts.json" || printf '{"artifacts":[]}' > "$RUNNER_TEMP/artifacts.json"
+          python3 - <<'PYCODE'
+          import json, os, pathlib
+          root = pathlib.Path(os.environ["RUNNER_TEMP"])
+          items = json.loads((root / "artifacts.json").read_text()).get("artifacts", [])
+          labels = {
+              "yingti-bridge-debug-apk": "debug APK",
+              "yingti-bridge-release-apk": "signed release APK",
+              "android-unit-test-reports": "unit test reports",
+          }
+          names = {a["name"] for a in items}
+          lines = ["### Artifact upload result", ""]
+          if items:
+              for artifact in sorted(items, key=lambda a: a["name"]):
+                  lines.append("- %s: uploaded, %.1f MiB, expires `%s`" % (
+                      labels.get(artifact["name"], artifact["name"]),
+                      artifact["size_in_bytes"] / 1024**2,
+                      artifact["expires_at"]))
+          else:
+              lines.append("No artifact was created for this run.")
+              lines.append("")
+              lines.append("If the job log shows the storage quota error, usage has not been recalculated yet; retry after it updates.")
+          missing = [v for k, v in labels.items() if k not in names]
+          if missing:
+              lines.append("")
+              lines.append("Not uploaded in this run: " + ", ".join(missing))
+          (root / "artifact-report.md").write_text("\n".join(lines) + "\n")
+          PYCODE
+          gh pr comment "$PR_NUMBER" --body-file "$RUNNER_TEMP/artifact-report.md"
