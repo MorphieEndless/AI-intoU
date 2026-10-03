@@ -15,23 +15,33 @@ import com.yingti.app.R
 import com.yingti.app.YingtiApp
 import com.yingti.app.ble.BleController
 import kotlinx.coroutines.*
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 class RelayService : Service() {
     private val serviceJob = SupervisorJob()
     private val scope = CoroutineScope(serviceJob + Dispatchers.Default)
     private lateinit var ble: BleController
     private lateinit var dispatcher: CommandDispatcher
+    private lateinit var initialized: Deferred<Unit>
     private var relay: RelayClient? = null
+    private val lifecycleMutex = Mutex()
+    @Volatile private var destroying = false
     private var wakeLock: PowerManager.WakeLock? = null
 
     override fun onCreate() {
         super.onCreate()
+        synchronized(SERVICE_LOCK) { activeService = this }
         createChannel()
         startForeground(NOTIFICATION_ID, notification("正在启动"))
         wakeLock = (getSystemService(POWER_SERVICE) as PowerManager)
             .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "YingtiBridge::Relay").apply { acquire() }
         ble = BleController(this, scope)
-        dispatcher = CommandDispatcher(ble, scope, (application as YingtiApp).history)
+        initialized = scope.async {
+            val app = application as YingtiApp
+            app.awaitReady()
+            dispatcher = CommandDispatcher(ble, scope, app.history)
+        }
         AppState.update { it.copy(serviceRunning = true, lastMessage = "服务已启动") }
     }
 
@@ -50,14 +60,19 @@ class RelayService : Service() {
                 if (command != null && command.optString("type") == "custom_pattern") local(command)
             }
             ACTION_STOP_ALL -> scope.launch {
+                initialized.await()
                 dispatcher.dispatch(JSONObject().put("type", "stop"), OperationSource.PHONE)
                 relay?.sendPhoneEmergencyStop()
                 updateNotification("已请求紧急停止")
             }
             ACTION_RESTART -> scope.launch {
-                dispatcher.emergencyStop()
-                relay?.stop()
-                relay = null
+                lifecycleMutex.withLock {
+                    if (destroying) return@withLock
+                    initialized.await()
+                    relay?.stop()
+                    relay = null
+                    dispatcher.emergencyStop()
+                }
                 startBridge()
             }
             ACTION_SHUTDOWN -> stopSelf() // onDestroy performs the stop exactly once.
@@ -66,7 +81,7 @@ class RelayService : Service() {
     }
 
     private fun local(command: JSONObject) {
-        scope.launch { dispatcher.dispatch(command, OperationSource.PHONE) }
+        scope.launch { initialized.await(); if (!destroying) dispatcher.dispatch(command, OperationSource.PHONE) }
     }
 
     /** Activity/task 消失不等于用户要求关闭桥接；持续连接由前台服务负责。 */
@@ -75,29 +90,48 @@ class RelayService : Service() {
         super.onTaskRemoved(rootIntent)
     }
 
-    private fun startBridge() {
-        val app = application as YingtiApp
-        val token = app.tokenStore.token
-        if (token.isNullOrBlank()) {
-            AppState.update { it.copy(error = "尚未登录", relayStatus = "缺少令牌") }
-            return
-        }
-        ble.start()
-        if (relay == null) {
-            relay = RelayClient(scope, dispatcher) { dispatcher.emergencyStop() }.also {
-                it.start(app.tokenStore.websocketUrl, token)
+    private fun startBridge() = scope.launch {
+        lifecycleMutex.withLock {
+            if (destroying) return@withLock
+            initialized.await()
+            val app = application as YingtiApp
+            val token = app.tokenStore.token
+            if (token.isNullOrBlank()) {
+                AppState.update { it.copy(error = "尚未登录", relayStatus = "缺少令牌") }
+                return@withLock
             }
+            ble.start()
+            if (relay == null) {
+                relay = RelayClient(scope, dispatcher) { dispatcher.emergencyStop() }.also {
+                    it.start(app.tokenStore.websocketUrl, token)
+                }
+            }
+            updateNotification("蓝牙与 Relay 正在连接")
         }
-        updateNotification("蓝牙与 Relay 正在连接")
     }
 
     override fun onDestroy() {
-        runBlocking { runCatching { dispatcher.emergencyStop() } }
-        relay?.stop()
-        ble.close()
-        wakeLock?.takeIf { it.isHeld }?.release()
-        serviceJob.cancel()
-        AppState.reset()
+        destroying = true
+        relay?.stop() // prevent new commands before cancelling the current output
+        // Lifecycle callbacks must never block the main looper on BLE pacing.
+        scope.launch {
+            try {
+                lifecycleMutex.withLock {
+                    relay?.stop()
+                    withTimeoutOrNull(2_000) { initialized.await(); dispatcher.emergencyStop() }
+                }
+            } finally {
+                ble.close()
+                wakeLock?.takeIf { it.isHeld }?.release()
+                synchronized(SERVICE_LOCK) {
+                    if (activeService === this@RelayService) {
+                        activeService = null
+                        AppState.reset()
+                    }
+                }
+                serviceJob.cancel()
+            }
+        }
         super.onDestroy()
     }
 
@@ -130,6 +164,8 @@ class RelayService : Service() {
     }
 
     companion object {
+        private val SERVICE_LOCK = Any()
+        private var activeService: RelayService? = null
         const val ACTION_CUSTOM = "com.yingti.app.CUSTOM_PATTERN"
         private const val EXTRA_PATTERN = "pattern_json"
         const val ACTION_START = "com.yingti.app.START"

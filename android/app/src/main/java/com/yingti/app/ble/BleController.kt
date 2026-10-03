@@ -24,9 +24,10 @@ class BleController(private val context: Context, private val scope: CoroutineSc
     private var scannerCallback: ScanCallback? = null
     private var scanTimeoutJob: Job? = null
     private var reconnectJob: Job? = null
-    private var gatt: BluetoothGatt? = null
-    private var writeCharacteristic: BluetoothGattCharacteristic? = null
+    @Volatile private var gatt: BluetoothGatt? = null
+    @Volatile private var writeCharacteristic: BluetoothGattCharacteristic? = null
     private val writeMutex = Mutex()
+    private val frameCache = FrameCache()
     private var lastWriteAt = 0L
     @Volatile private var shouldRun = true
     @Volatile private var connectionGeneration = 0L
@@ -204,7 +205,7 @@ class BleController(private val context: Context, private val scope: CoroutineSc
 
     suspend fun setVibration(intensity: Double): Result<Int> {
         val level = SvakomProtocol.levelFor(intensity)
-        return write(SvakomProtocol.vibrate(level)).map {
+        return write(SvakomProtocol.vibrate(level), deduplicate = level > 0).map {
             currentVibrateLevel = level
             updateKeepAlive()
             AppState.update { state -> state.copy(intensity = level, lastMessage = "震动 $level 档") }
@@ -215,7 +216,7 @@ class BleController(private val context: Context, private val scope: CoroutineSc
     suspend fun setSuction(intensity: Double, mode: Int = SvakomProtocol.SUCTION_DEFAULT_MODE): Result<Int> {
         val level = SvakomProtocol.suctionLevelFor(intensity)
         val frame = runCatching { SvakomProtocol.suction(level, mode) }.getOrElse { return Result.failure(it) }
-        return write(frame).map {
+        return write(frame, deduplicate = level > 0).map {
             currentSuctionLevel = level
             if (level > 0) currentSuctionMode = mode
             updateKeepAlive()
@@ -234,13 +235,14 @@ class BleController(private val context: Context, private val scope: CoroutineSc
 
     suspend fun stopAll(): Result<Unit> {
         var failure: Throwable? = null
-        for (frame in SvakomProtocol.stopFrames) {
-            write(frame).onFailure { failure = it }
-            delay(35)
-        }
+        // Clear intent and cancel watchdog first, including when the device is offline.
         currentVibrateLevel = 0
         currentSuctionLevel = 0
-        updateKeepAlive()
+        keepAliveJob?.cancelAndJoin()
+        keepAliveJob = null
+        for (frame in SvakomProtocol.stopFrames) {
+            write(frame).onFailure { failure = it }
+        }
         AppState.update { it.copy(intensity = 0, suctionIntensity = 0, lastMessage = "全部停止") }
         return failure?.let { Result.failure(it) } ?: Result.success(Unit)
     }
@@ -264,13 +266,17 @@ class BleController(private val context: Context, private val scope: CoroutineSc
     }
 
     @SuppressLint("MissingPermission")
-    private suspend fun write(frame: ByteArray): Result<Unit> = writeMutex.withLock {
+    private suspend fun write(frame: ByteArray, deduplicate: Boolean = false): Result<Unit> = writeMutex.withLock {
         withContext(Dispatchers.IO) {
+            if (deduplicate && isConnected && frameCache.contains(connectionGeneration, frame)) {
+                return@withContext Result.success(Unit)
+            }
             val now = SystemClock.elapsedRealtime()
             val waitMs = (WRITE_INTERVAL_MS - (now - lastWriteAt)).coerceAtLeast(0L)
             if (waitMs > 0) delay(waitMs)
             val currentGatt = gatt
             val currentCharacteristic = writeCharacteristic
+            val generation = connectionGeneration
             val result = runCatching {
                 if (!hasBlePermissions()) error("缺少蓝牙权限")
                 val g = currentGatt ?: error("设备未连接")
@@ -283,6 +289,12 @@ class BleController(private val context: Context, private val scope: CoroutineSc
                 }
                 if (!accepted) error("BLE 写入被拒绝")
                 lastWriteAt = SystemClock.elapsedRealtime()
+                if (frame.size == 7 && frame[0] == 0x55.toByte() &&
+                    frame[1].toInt() in setOf(3, 9) && isCurrent(g) && generation == connectionGeneration) {
+                    frameCache.record(generation, frame)
+                } else {
+                    frameCache.clear() // raw writes must not leave an optimistic cache
+                }
             }
             if (result.isFailure && currentGatt != null && isCurrent(currentGatt)) {
                 // 写失败时立即清空当前连接；否则 scan() 会误判为“仍在线”而不重连。
@@ -304,11 +316,10 @@ class BleController(private val context: Context, private val scope: CoroutineSc
         val oldGatt = gatt
         gatt = null
         writeCharacteristic = null
-        scope.launch {
-            runCatching { stopAll() }
-            runCatching { oldGatt?.disconnect() }
-            runCatching { oldGatt?.close() }
-        }
+        // The service has already attempted stop while the transport was usable.
+        // Closing must not enqueue work in a scope about to be cancelled.
+        runCatching { oldGatt?.disconnect() }
+        runCatching { oldGatt?.close() }
     }
 
     @SuppressLint("MissingPermission")

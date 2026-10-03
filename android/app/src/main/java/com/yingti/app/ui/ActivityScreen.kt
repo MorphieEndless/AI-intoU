@@ -49,7 +49,7 @@ fun ActivityScreen(history: ActivityHistory) {
                 FilterChip(selected = source == s, onClick = { source = s }, label = { Text(s.label) })
             }
         }
-        val visible = history.events.filter { source == null || it.source == source }
+        val visible = remember(history.events, source) { history.events.filter { source == null || it.source == source } }
         LazyColumn(
             Modifier.fillMaxWidth().weight(1f),
             verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -63,6 +63,10 @@ fun ActivityScreen(history: ActivityHistory) {
 
 @Composable
 private fun LogEntry(event: OperationEvent) {
+    val timestamp = remember(event.time) {
+        Instant.ofEpochMilli(event.time).atZone(ZoneId.systemDefault())
+            .format(DateTimeFormatter.ofPattern("MM-dd HH:mm:ss"))
+    }
     Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(event.action, style = MaterialTheme.typography.titleMedium)
@@ -72,8 +76,7 @@ private fun LogEntry(event: OperationEvent) {
                 else MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text(
-                Instant.ofEpochMilli(event.time).atZone(ZoneId.systemDefault())
-                    .format(DateTimeFormatter.ofPattern("MM-dd HH:mm:ss")),
+                timestamp,
                 style = MaterialTheme.typography.labelSmall,
             )
         }

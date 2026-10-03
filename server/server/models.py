@@ -57,7 +57,7 @@ class PatternCommand(BaseModel):
     device: str = "all"
     intensity: float = Field(0.6, ge=0.0, le=1.0)
     duration: float = Field(10.0, ge=0.0)
-    hold_seconds: float = Field(0.0, ge=0.0)  # escalate only: 0 = hold at peak indefinitely
+    hold_seconds: float = Field(10.0, ge=0.0)  # escalate only: 0 = hold at peak indefinitely
     feature_index: Optional[int] = None  # target a specific actuator by index
     mode: Optional[int] = Field(None, ge=1, le=8)  # constrict only: protocol byte4
 
@@ -96,12 +96,7 @@ class DeviceListReport(BaseModel):
     devices: list[dict[str, Any]] = []
 
 
-class CommandAck(BaseModel):
-    type: str = "command_ack"
-    success: bool = True
-    message: str = ""
-    request_id: Optional[str] = None
-    data: Optional[dict[str, Any]] = None  # sensor readings, etc.
+from app.schemas.ws import CommandAck  # legacy public export
 
 
 class PhoneAuth(BaseModel):

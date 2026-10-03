@@ -189,7 +189,7 @@ def create_token(user_id: str, username: str) -> str:
 def verify_token(token: str) -> Optional[dict]:
     """Validate the optional static Bearer token or a JWT."""
     if config.STATIC_BEARER_TOKEN and hmac.compare_digest(token, config.STATIC_BEARER_TOKEN):
-        return {"user_id": "static-bearer-user", "username": "static-token"}
+        return {"user_id": config.STATIC_USER_ID or "static-bearer-user", "username": "static-token"}
     try:
         payload = jwt.decode(token, config.SECRET_KEY, algorithms=["HS256"])
         return {"user_id": payload["sub"], "username": payload["username"]}

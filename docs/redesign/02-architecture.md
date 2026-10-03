@@ -219,3 +219,30 @@ CLI 命令集：`create-user` / `reset-password` / `create-token` /
 | 2026-09-22 | M2 拆分为 M2a（身份/令牌内核，零行为变更）与 M2b（接线 + 删除旧机制 + 客户端同步） | 内核可以单独评审、单独回滚；删除动作必须与安卓侧同版上线，混在一个 PR 里就无法独立回滚 |
 | 2026-09-22 | WS `/ws/phone` 严格执行 §5（仅 `kind='phone'`），安卓 App 在同一里程碑改为登录后经 `POST /api/tokens` 领取 phone token | 现状 App 的账号模式把会话 JWT 兼作中继凭证；只改服务端会当场打断在用客户端，违反铁律 5。两端同版交付，不引入过渡开关（那会是又一条平行认证路径） |
 | 2026-09-22 | 配置迁入 `app/config.py`（pydantic-settings）；`server/config.py` 降为只读别名层；开发默认库路径统一为 `server/signal_bridge.db` | 落地 §3 技术选型；此前 legacy 默认路径与 M1 的 `alembic/env.py`、`app/db.py` 默认值互相矛盾（真实部署一律显式设置 `SB_DB_PATH`，Dockerfile 与 .env 都是这么做的）。附带的有意变更：非法 `SB_*` 值改为启动即拒，这正是集中校验的意义 |
+
+### ADR 2026-09-30 — Compatibility and relay performance tranche
+
+This tranche precedes M2b and does not claim to complete M2b–M7.
+
+- Keep the deployed static bearer mechanism until the coordinated credential
+  migration. Add `SB_STATIC_USER_ID` to the single configuration source;
+  empty retains the legacy identity. D1 remains the target, not an immediate
+  deletion instruction for this compatibility release.
+- Move the runtime registry to `app/infra` with a legacy re-export. All socket
+  cleanup and incoming state updates are tied to the exact owning session.
+  Publish a replacement before closing the old connection; never hold a
+  registry lock across network I/O.
+- Preserve repeat 1–60 and the ten-minute cap. No new minimum waveform
+  duration: the deployed implementation does not enforce one, despite its
+  comment. Escalate defaults to a ten-second hold; explicit zero retains
+  indefinite hold semantics.
+- Relay addresses are explicit CLI inputs or `SB_RELAY_SERVER`; no deployed
+  hostname is embedded as a source default.
+- Android command execution uses one bounded inbox per connection. Socket
+  replacement cancels its inbox before stopping outputs and reconnecting.
+  Stop discards queued work with negative acknowledgements. Validation,
+  heartbeat, BLE pacing and hardware watchdog remain necessary safeguards.
+- Service shutdown requests the physical stop asynchronously before closing
+  BLE; no main-thread `runBlocking`. History persistence batches updates and
+  screen subscriptions are local. These are source-level improvements, not
+  measured frame-time or physical stop guarantees.

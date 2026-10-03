@@ -5,13 +5,19 @@ on:
     branches: [main, master]
   pull_request:
   workflow_dispatch:
+    inputs:
+      publish_apk:
+        description: Publish the signed APK as a prerelease asset (bypasses the Actions artifact quota)
+        type: boolean
+        default: false
 
 jobs:
   debug:
     name: Debug APK (test + assemble)
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
+      pull-requests: write
     defaults:
       run:
         working-directory: android
@@ -28,7 +34,7 @@ jobs:
       - name: Fetch gradle wrapper jar
         run: |
           mkdir -p gradle/wrapper
-          curl -sSL -o gradle/wrapper/gradle-wrapper.jar \
+          curl -fsSL --retry 3 -o gradle/wrapper/gradle-wrapper.jar \
             https://raw.githubusercontent.com/gradle/gradle/v8.9.0/gradle/wrapper/gradle-wrapper.jar
           chmod +x gradlew
 
@@ -36,28 +42,105 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       - name: Unit tests
-        run: ./gradlew --no-daemon testDebugUnitTest
+        run: |
+          set -o pipefail
+          ./gradlew --no-daemon testDebugUnitTest 2>&1 | tee "$RUNNER_TEMP/android-build.log"
 
       - name: Build debug APK
-        run: ./gradlew --no-daemon assembleDebug
+        run: |
+          set -o pipefail
+          ./gradlew --no-daemon assembleDebug 2>&1 | tee -a "$RUNNER_TEMP/android-build.log"
+
+      - name: Publish debug APK as a prerelease asset
+        # Actions artifact storage is quota-bound; release assets are not.
+        if: always() && github.ref_name != 'main' && github.ref_name != 'master'
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          GH_REF: ${{ github.head_ref || github.ref_name }}
+        run: |
+          apk="android/app/build/outputs/apk/debug/app-debug.apk"
+          [ -f "$apk" ] || { echo "No debug APK was produced in this run."; exit 0; }
+          version=$(grep -oP 'versionName = "\K[^"]+' android/app/build.gradle.kts || true)
+          version=${version:-unknown}
+          tag="ci-apk-${version}-$(echo "$GH_REF" | tr '/' '-')"
+          notes="CI build of the Android app from branch ${GH_REF}. The Actions artifact storage quota is exhausted, so the APK is attached here as a prerelease asset instead. Debug-signed test build, not a production deployment; no deployment configuration or data is included. Installing it over a release-signed install requires uninstalling first."
+          gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" --prerelease --target "$GITHUB_SHA" --title "CI APK ${version}" --notes "$notes"
+          gh release upload "$tag" "$apk" --clobber
+          echo "Published $tag"
+
+      - name: Upload test reports
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-unit-test-reports
+          path: |
+            android/app/build/reports/tests/
+            android/app/build/test-results/
+          if-no-files-found: ignore
+          retention-days: 3
+
+      - name: Report failure summary on pull request
+        if: failure() && github.event_name == 'pull_request'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          python3 - <<'PYCODE'
+          import os, re, pathlib, xml.etree.ElementTree as ET
+          workspace = os.environ["GITHUB_WORKSPACE"]
+          logfile = pathlib.Path(os.environ["RUNNER_TEMP"]) / "android-build.log"
+          lines = logfile.read_text(errors="replace").splitlines() if logfile.exists() else []
+          findings = []
+          for line in lines:
+              if re.search(r"^e: | error: | > .* FAILED|Execution failed for task|^> (Could not|Failed|[A-Za-z]+Exception)|SDK location not found", line):
+                  findings.append(line.replace(workspace + "/", "").replace("file://", ""))
+          for report in pathlib.Path("app/build/test-results").rglob("TEST-*.xml"):
+              for case in ET.parse(report).getroot().iter("testcase"):
+                  failure = case.find("failure")
+                  if failure is not None:
+                      findings.append(case.get("classname", "") + "." + case.get("name", "") + ": " + failure.get("type", "test failure"))
+                      findings.extend(line.strip() for line in (failure.text or "").splitlines() if "at com.yingti.app." in line)
+          def redact(text):
+              text = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", text)
+              text = re.sub(r"https?://[^\s]+", "[url]", text)
+              text = re.sub(r"/(?:home|Users|workspace|opt|srv|etc)/[^\s]+", "[path]", text)
+              text = re.sub(r"\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b", "[address]", text)
+              text = re.sub(r"(?:gh[pors]_|github_pat_|sk-)[A-Za-z0-9_-]+", "[credential]", text)
+              return text[:500]
+          if not findings and lines:
+              findings = lines[-20:]
+          summary = "### Android Actions failure\n\n```text\n" + "\n".join(redact(x) for x in findings[:20]) + "\n```\n\n"
+          if not findings:
+              summary = "### Android Actions failure\n\nNo compiler/test diagnostic was captured. See the workflow log.\n\n"
+          summary += "[Workflow run](" + os.environ["GITHUB_SERVER_URL"] + "/" + os.environ["GITHUB_REPOSITORY"] + "/actions/runs/" + os.environ["GITHUB_RUN_ID"] + ")"
+          (pathlib.Path(os.environ["RUNNER_TEMP"]) / "android-failure.md").write_text(summary)
+          PYCODE
+          gh pr comment "$PR_NUMBER" --body-file "$RUNNER_TEMP/android-failure.md"
 
       - name: APK checksum
         run: sha256sum app/build/outputs/apk/debug/app-debug.apk
 
       - name: Upload debug APK
+        # Storage exhaustion must not be reported as a compiler or test failure.
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: yingti-bridge-debug-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 7
 
   release:
     name: Release APK (signed)
     needs: debug
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
     defaults:
       run:
         working-directory: android
@@ -74,7 +157,7 @@ jobs:
       - name: Fetch gradle wrapper jar
         run: |
           mkdir -p gradle/wrapper
-          curl -sSL -o gradle/wrapper/gradle-wrapper.jar \
+          curl -fsSL --retry 3 -o gradle/wrapper/gradle-wrapper.jar \
             https://raw.githubusercontent.com/gradle/gradle/v8.9.0/gradle/wrapper/gradle-wrapper.jar
           chmod +x gradlew
 
@@ -105,10 +188,174 @@ jobs:
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
 
+      - name: Publish signed release APK as a prerelease asset
+        # Actions artifact storage is quota-bound; release assets are not.
+        if: always() && github.ref_name != 'main' && github.ref_name != 'master'
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          GH_REF: ${{ github.head_ref || github.ref_name }}
+        run: |
+          apk="android/app/build/outputs/apk/release/app-release.apk"
+          [ -f "$apk" ] || { echo "No signed release APK was produced in this run."; exit 0; }
+          version=$(grep -oP 'versionName = "\K[^"]+' android/app/build.gradle.kts || true)
+          version=${version:-unknown}
+          tag="ci-apk-${version}-$(echo "$GH_REF" | tr '/' '-')"
+          notes="CI build of the Android app from branch ${GH_REF}. Signed release test build. No deployment configuration or data is included."
+          gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" --prerelease --target "$GITHUB_SHA" --title "CI APK ${version}" --notes "$notes"
+          gh release upload "$tag" "$apk" --clobber
+          echo "Published signed release APK to $tag"
+
+      - name: APK checksum
+        run: |
+          apk="app/build/outputs/apk/release/app-release.apk"
+          [ -f "$apk" ] && sha256sum "$apk" || true
+
       - name: Upload release APK
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: yingti-bridge-release-apk
           path: android/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: warn
-          retention-days: 30
+          retention-days: 14
+
+  previous-failure-diagnostics:
+    name: Previous APK failure diagnostics
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      pull-requests: write
+    steps:
+      - name: Retrieve completed failure logs
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_BRANCH: ${{ github.head_ref }}
+        run: |
+          stage="list completed runs"
+          fail_diagnostics() {
+            printf '### Actions diagnostics unavailable\n\nStage: %s\n\n```text\n' "$stage" > "$RUNNER_TEMP/diagnostics-error.md"
+            tail -n 5 "$RUNNER_TEMP/diagnostics-error.log" | sed -E 's#https?://[^ ]+#[url]#g; s#/(home|workspace|opt|srv|etc)/[^ ]+#[path]#g' >> "$RUNNER_TEMP/diagnostics-error.md"
+            printf '\n```\n' >> "$RUNNER_TEMP/diagnostics-error.md"
+            gh pr comment "$PR_NUMBER" --body-file "$RUNNER_TEMP/diagnostics-error.md" || true
+            exit 0
+          }
+          exec 2> >(tee "$RUNNER_TEMP/diagnostics-error.log" >&2)
+          trap fail_diagnostics ERR
+          gh api --method GET "repos/$GH_REPO/actions/workflows/build-apk.yml/runs" \
+            -f branch="$HEAD_BRANCH" -f status=completed -f per_page=5 > "$RUNNER_TEMP/runs.json"
+          previous=$(python3 -c 'import json,sys; print(next((str(r["id"]) for r in json.load(open(sys.argv[1]))["workflow_runs"] if r["conclusion"] == "failure"), ""))' "$RUNNER_TEMP/runs.json")
+          [ -n "$previous" ] || exit 0
+          stage="list failed jobs"
+          gh api "repos/$GH_REPO/actions/runs/$previous/jobs" > "$RUNNER_TEMP/jobs.json"
+          job=$(python3 -c 'import json,sys; print(next((str(j["id"]) for j in json.load(open(sys.argv[1]))["jobs"] if j["conclusion"] == "failure"), ""))' "$RUNNER_TEMP/jobs.json")
+          [ -n "$job" ] || exit 0
+          stage="download completed job log"
+          gh api "repos/$GH_REPO/actions/jobs/$job/logs" --allow-escape-sequences > "$RUNNER_TEMP/failed-job.log"
+          stage="summarize completed job log"
+          python3 - <<'PYCODE'
+          import os, re, json, pathlib
+          root = pathlib.Path(os.environ["RUNNER_TEMP"])
+          jobs = json.loads((root / "jobs.json").read_text())["jobs"]
+          job = next(j for j in jobs if j["conclusion"] == "failure")
+          failed = [s["name"] for s in job["steps"] if s.get("conclusion") == "failure"]
+          lines = (root / "failed-job.log").read_text(errors="replace").splitlines()
+          errors = [s for s in lines if re.search(r"##\[error\]|FAILURE:|Exception|Could not| FAILED|^e: |SDK location", s)]
+          if not errors:
+              errors = lines[-15:]
+          def redact(text):
+              text = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", text)
+              text = re.sub(r"https?://[^\s]+", "[url]", text)
+              text = re.sub(r"/(?:home|Users|workspace|opt|srv|etc)/[^\s]+", "[path]", text)
+              text = re.sub(r"\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b", "[address]", text)
+              text = re.sub(r"(?:gh[pors]_|github_pat_|sk-)[A-Za-z0-9_-]+", "[credential]", text)
+              return text[:700]
+          summary = "### Previous APK failure diagnostics\n\nFailed step: " + ", ".join(failed) + "\n\n```text\n"
+          summary += "\n".join(redact(s) for s in errors[:25]) + "\n```\n\n[Job log](" + job["html_url"] + ")"
+          (root / "previous-failure.md").write_text(summary)
+          PYCODE
+          gh pr comment "$PR_NUMBER" --body-file "$RUNNER_TEMP/previous-failure.md"
+
+  artifact-report:
+    name: Artifact upload result
+    needs: [debug, release]
+    if: always() && github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      pull-requests: write
+    steps:
+      - name: Report release assets for this branch
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_BRANCH: ${{ github.head_ref || github.ref_name }}
+        run: |
+          gh api --paginate --slurp "repos/$GH_REPO/releases?per_page=50" > "$RUNNER_TEMP/releases.json" || echo '[]' > "$RUNNER_TEMP/releases.json"
+          python3 - <<'PYCODE'
+          import json, os, pathlib
+          root = pathlib.Path(os.environ["RUNNER_TEMP"])
+          pages = json.loads((root / "releases.json").read_text() or "[]")
+          releases = [r for page in (pages if isinstance(pages, list) else [pages]) for r in page] if pages else []
+          ci = [r for r in releases if r.get("tag_name", "").startswith("ci-apk-")]
+          lines = ["### Release assets (downloadable APKs)", ""]
+          if ci:
+              for release in sorted(ci, key=lambda r: r.get("published_at") or "", reverse=True)[:3]:
+                  lines.append("`%s`%s" % (release["tag_name"], " (draft)" if release.get("draft") else ""))
+                  assets = release.get("assets") or []
+                  if not assets:
+                      lines.append("  - no asset attached")
+                  for asset in assets:
+                      lines.append("  - `%s`, %.1f MiB, downloads: %d" % (
+                          asset["name"], asset["size"] / 1024**2, asset.get("download_count", 0)))
+              lines.append("")
+              lines.append("Download from the repository Releases page or the API asset URL.")
+          else:
+              lines.append("No `ci-apk-*` release exists yet, so no APK is downloadable from Releases.")
+          (root / "release-report.md").write_text("\n".join(lines) + "\n")
+          PYCODE
+          gh pr comment "$PR_NUMBER" --body-file "$RUNNER_TEMP/release-report.md" --edit-last --create-if-none
+
+      - name: Report artifact availability for this run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          gh api "repos/$GH_REPO/actions/runs/$RUN_ID/artifacts" > "$RUNNER_TEMP/artifacts.json" || printf '{"artifacts":[]}' > "$RUNNER_TEMP/artifacts.json"
+          python3 - <<'PYCODE'
+          import json, os, pathlib
+          root = pathlib.Path(os.environ["RUNNER_TEMP"])
+          items = json.loads((root / "artifacts.json").read_text()).get("artifacts", [])
+          labels = {
+              "yingti-bridge-debug-apk": "debug APK",
+              "yingti-bridge-release-apk": "signed release APK",
+              "android-unit-test-reports": "unit test reports",
+          }
+          names = {a["name"] for a in items}
+          lines = ["### Artifact upload result", ""]
+          if items:
+              for artifact in sorted(items, key=lambda a: a["name"]):
+                  lines.append("- %s: uploaded, %.1f MiB, expires `%s`" % (
+                      labels.get(artifact["name"], artifact["name"]),
+                      artifact["size_in_bytes"] / 1024**2,
+                      artifact["expires_at"]))
+          else:
+              lines.append("No artifact was created for this run.")
+              lines.append("")
+              lines.append("If the job log shows the storage quota error, usage has not been recalculated yet; retry after it updates.")
+          missing = [v for k, v in labels.items() if k not in names]
+          if missing:
+              lines.append("")
+              lines.append("Not uploaded in this run: " + ", ".join(missing))
+          (root / "artifact-report.md").write_text("\n".join(lines) + "\n")
+          PYCODE
+          gh pr comment "$PR_NUMBER" --body-file "$RUNNER_TEMP/artifact-report.md"

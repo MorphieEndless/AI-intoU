@@ -52,6 +52,7 @@ class Settings(BaseSettings):
     REQUIRE_MCP_AUTH: bool = False
     # Deprecated static bearer token (D1: removed in M2b).
     STATIC_BEARER_TOKEN: str = ""
+    STATIC_USER_ID: str = ""  # Compatibility binding until coordinated M2b migration
 
     # ── Rate limiting ───────────────────────────────────────────────────
     # Format: "count/period" — e.g. "5/minute", "100/hour"

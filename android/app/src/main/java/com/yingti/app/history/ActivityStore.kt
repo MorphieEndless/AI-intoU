@@ -26,7 +26,16 @@ class ActivityStore(context: Context) {
             catch (_: java.io.FileNotFoundException) { ActivityHistory() }
             catch (_: Exception) { ActivityHistory(storageError = true) }
             for (change in changes) {
-                val next = change(mutable.value)
+                var next = change(mutable.value)
+                // A command generates several status transitions. Keep their order
+                // and usage counts, but avoid an fsync for every transition.
+                delay(50)
+                var drained = 0
+                while (drained < 127) {
+                    val pending = changes.tryReceive().getOrNull() ?: break
+                    next = pending(next)
+                    drained++
+                }
                 try {
                     val stream = file.startWrite()
                     try {

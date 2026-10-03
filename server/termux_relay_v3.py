@@ -351,7 +351,7 @@ class PatternRunner:
         intensity = cmd.get("intensity", 0.6)
         duration = cmd.get("duration", 10.0)
         output_type = cmd.get("action", cmd.get("output_type", "vibrate"))
-        hold = cmd.get("hold_seconds", 0.0)
+        hold = cmd.get("hold_seconds", 10.0)
         feature_index = cmd.get("feature_index")
         targets = self._resolve_targets(device)
 
@@ -574,10 +574,12 @@ async def relay_loop(server_url, token, intiface_url):
 
 def main():
     parser = argparse.ArgumentParser(description="Signal Bridge Termux Relay")
-    parser.add_argument("--server", required=True, help="VPS WebSocket URL，例如 wss://your-server.example.com/ws/phone")
+    parser.add_argument("--server", default=os.getenv("SB_RELAY_SERVER"), help="VPS WebSocket URL，例如 wss://your-server.example.com/ws/phone")
     parser.add_argument("--token", default=os.environ.get("SB_TOKEN"), help="JWT auth token (or set SB_TOKEN env var)")
     parser.add_argument("--intiface", default="ws://127.0.0.1:12345", help="Intiface Central WebSocket URL")
     args = parser.parse_args()
+    if not args.server:
+        parser.error("--server or SB_RELAY_SERVER is required")
 
     if not args.token:
         parser.error("Token required: use --token or set SB_TOKEN env var")
