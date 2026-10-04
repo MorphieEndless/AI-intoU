@@ -59,7 +59,8 @@ class DashboardSliderTest {
 
     private fun tapLevel(level: Int) {
         compose.onNode(suctionSlider).performTouchInput {
-            click(Offset((width * level / 5f).coerceIn(1f, width - 1f), centerY))
+            // Keep pointer injection inside the track, including endpoint hit areas.
+            click(Offset(width * (0.05f + 0.9f * level / 5f), centerY))
         }
     }
 
@@ -99,7 +100,7 @@ class DashboardSliderTest {
     fun dragStillCommitsOnlyAtRelease() {
         showDashboard()
         compose.onNode(suctionSlider).performTouchInput {
-            swipe(Offset(1f, centerY), Offset(width * 0.8f, centerY), durationMillis = 300)
+            swipe(Offset(width * 0.05f, centerY), Offset(width * 0.8f, centerY), durationMillis = 300)
         }
         compose.runOnIdle { assertCommands(listOf(0.8 to 5)) }
     }
