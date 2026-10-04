@@ -30,6 +30,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yingti.app.BridgeState
+import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
 
 private enum class SuctionPanel { TOY, FREE }
@@ -89,11 +90,55 @@ fun DashboardScreen(
     var dragging by remember { mutableStateOf(false) }
     LaunchedEffect(state.intensity) { if (!dragging) slider = state.intensity / 10f }
     var suctionPanel by remember { mutableStateOf(SuctionPanel.TOY) }
-    var suctionMode by remember(state.suctionMode) { mutableIntStateOf(state.suctionMode.coerceIn(1, 8)) }
+    var suctionMode by remember { mutableIntStateOf(state.suctionMode.coerceIn(1, 8)) }
     var suctionLevel by remember { mutableFloatStateOf(state.suctionIntensity.coerceIn(0, 5).toFloat()) }
     var suctionDragging by remember { mutableStateOf(false) }
-    LaunchedEffect(state.suctionIntensity) {
-        if (!suctionDragging) suctionLevel = state.suctionIntensity.coerceIn(0, 5).toFloat()
+    var pendingSuction by remember { mutableStateOf<Pair<Int, Int>?>(null) }
+    var suctionRequest by remember { mutableIntStateOf(0) }
+    var previousBridge by remember { mutableStateOf(state) }
+    val latestBridge by rememberUpdatedState(state)
+
+    LaunchedEffect(state) {
+        val forcedReset = !state.serviceRunning || state.bleStatus != "已连接" ||
+            (state.error != null && state.error != previousBridge.error) ||
+            (state.lastMessage != previousBridge.lastMessage &&
+                state.lastMessage in setOf("全部停止", "吮吸已停止"))
+        val modeChanged = state.suctionMode != previousBridge.suctionMode
+        previousBridge = state
+        val pending = pendingSuction
+        val confirmed = pending != null && state.suctionIntensity == pending.first &&
+            (pending.first == 0 || state.suctionMode == pending.second)
+        if (forcedReset) {
+            suctionDragging = false
+            pendingSuction = null
+        } else if (confirmed) {
+            pendingSuction = null
+        }
+        if (!suctionDragging && pendingSuction == null) {
+            suctionLevel = state.suctionIntensity.coerceIn(0, 5).toFloat()
+            if (forcedReset || modeChanged) suctionMode = state.suctionMode.coerceIn(1, 8)
+        }
+    }
+    LaunchedEffect(suctionRequest) {
+        if (pendingSuction == null) return@LaunchedEffect
+        // A failed/unacknowledged command must not leave the UI optimistic forever.
+        delay(2_000)
+        if (pendingSuction != null) {
+            pendingSuction = null
+            if (!suctionDragging) {
+                suctionLevel = latestBridge.suctionIntensity.coerceIn(0, 5).toFloat()
+                suctionMode = latestBridge.suctionMode.coerceIn(1, 8)
+            }
+        }
+    }
+    fun submitSuction(value: Double, mode: Int) {
+        val level = (value * 5).roundToInt().coerceIn(0, 5)
+        suctionDragging = false
+        suctionLevel = level.toFloat()
+        suctionMode = mode
+        pendingSuction = level to mode
+        suctionRequest++
+        onSuction(level / 5.0, mode)
     }
     val selectedToy = toyPresets.indexOfFirst {
         state.suctionIntensity > 0 && it.mode == state.suctionMode && it.level == state.suctionIntensity
@@ -156,7 +201,12 @@ fun DashboardScreen(
                             Modifier
                                 .size(44.dp)
                                 .background(Color(0xFFB3261E), CircleShape)
-                                .clickable(onClick = onStop),
+                                .clickable {
+                                    pendingSuction = null
+                                    suctionDragging = false
+                                    suctionLevel = 0f
+                                    onStop()
+                                },
                             contentAlignment = Alignment.Center,
                         ) {
                             Icon(Icons.Filled.Stop, "STOP ALL", tint = Color.White, modifier = Modifier.size(24.dp))
@@ -202,24 +252,16 @@ fun DashboardScreen(
                 mode = suctionMode,
                 level = suctionLevel,
                 onPanelChange = { suctionPanel = it },
-                onToyPreset = { preset ->
-                    suctionMode = preset.mode
-                    suctionLevel = preset.level.toFloat()
-                    onSuction(preset.level / 5.0, preset.mode)
-                },
+                onToyPreset = { preset -> submitSuction(preset.level / 5.0, preset.mode) },
                 onModeChange = { suctionMode = it },
                 onLevelChange = { suctionDragging = true; suctionLevel = it },
                 onLevelChangeFinished = {
                     // A tap updates and commits in the same frame; read the live state here.
-                    suctionDragging = false
-                    val level = suctionLevel.roundToInt().coerceIn(0, 5)
-                    onSuction(level / 5.0, suctionMode)
+                    submitSuction(suctionLevel.roundToInt() / 5.0, suctionMode)
                 },
-                onSuction = { value, mode -> suctionDragging = false; onSuction(value, mode) },
+                onSuction = ::submitSuction,
                 onStopSuction = {
-                    suctionDragging = false
-                    suctionLevel = 0f
-                    onSuction(0.0, suctionMode)
+                    submitSuction(0.0, suctionMode)
                 },
             )
 
@@ -425,7 +467,7 @@ internal fun ProtocolDebugCard(lastMessage: String, onSendRaw: (String) -> Unit)
     Surface(
         shape = RoundedCornerShape(20.dp),
         color = MaterialTheme.colorScheme.surfaceVariant,
-        tonalElevation = 1.dp,
+        tonalElevation = 2.dp,
     ) {
         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("协议调试", style = MaterialTheme.typography.titleMedium)

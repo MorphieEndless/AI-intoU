@@ -174,4 +174,44 @@ class DashboardSliderTest {
         assertDisplayedLevel(0)
     }
 
+    @Test
+    fun staleModeEchoDoesNotChangeNextTapMode() {
+        showDashboard(mode = 1)
+        tapLevel(3)
+        echo(3, mode = 5)
+        assertDisplayedLevel(3)
+        tapLevel(4)
+        compose.runOnIdle { assertCommands(listOf(0.6 to 1, 0.8 to 1)) }
+    }
+
+    @Test
+    fun commandFailureClearsPendingTap() {
+        showDashboard()
+        tapLevel(4)
+        compose.runOnIdle { bridge.value = bridge.value.copy(error = "BLE 写入失败") }
+        assertDisplayedLevel(0)
+    }
+
+    @Test
+    fun missingAcknowledgementEventuallyRestoresAppliedState() {
+        showDashboard()
+        tapLevel(3)
+        assertDisplayedLevel(3)
+        compose.waitUntil(timeoutMillis = 5_000) {
+            compose.onNode(suctionSlider).fetchSemanticsNode()
+                .config[SemanticsProperties.ProgressBarRangeInfo].current == 0f
+        }
+        assertDisplayedLevel(0)
+        compose.runOnIdle { assertCommands(listOf(0.6 to 5)) }
+    }
+
+    @Test
+    fun idleModeSelectionSurvivesUnrelatedBridgeUpdate() {
+        showDashboard()
+        compose.onNodeWithText("脉冲").performClick()
+        compose.runOnIdle { bridge.value = bridge.value.copy(intensity = 3) }
+        tapLevel(3)
+        compose.runOnIdle { assertCommands(listOf(0.6 to 1)) }
+    }
+
 }
