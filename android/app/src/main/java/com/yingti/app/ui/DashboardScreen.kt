@@ -467,7 +467,7 @@ internal fun ProtocolDebugCard(lastMessage: String, onSendRaw: (String) -> Unit)
     Surface(
         shape = RoundedCornerShape(20.dp),
         color = MaterialTheme.colorScheme.surfaceVariant,
-        tonalElevation = 2.dp,
+        tonalElevation = 1.dp,
     ) {
         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("协议调试", style = MaterialTheme.typography.titleMedium)
