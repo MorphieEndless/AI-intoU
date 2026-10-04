@@ -72,3 +72,10 @@ dependencies {
     testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
 }
 
+
+tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
+    testLogging {
+        events("failed")
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+    }
+}

@@ -14,7 +14,6 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipe
 import com.yingti.app.BridgeState
-import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -54,6 +53,10 @@ class DashboardSliderTest {
         compose.onNode(suctionSlider).performScrollTo()
     }
 
+    private fun assertCommands(expected: List<Pair<Double, Int>>) {
+        check(commands == expected) { "Expected suction commands $expected, received $commands" }
+    }
+
     private fun tapLevel(level: Int) {
         compose.onNode(suctionSlider).performTouchInput {
             click(Offset((width * level / 5f).coerceIn(1f, width - 1f), centerY))
@@ -66,7 +69,7 @@ class DashboardSliderTest {
         for (level in 1..5) {
             tapLevel(level)
             compose.runOnIdle {
-                assertEquals((1..level).map { it / 5.0 to 5 }, commands)
+                assertCommands((1..level).map { it / 5.0 to 5 })
             }
         }
     }
@@ -75,21 +78,21 @@ class DashboardSliderTest {
     fun tapCanLowerLevelWithoutDragging() {
         showDashboard(initialLevel = 5)
         tapLevel(2)
-        compose.runOnIdle { assertEquals(listOf(0.4 to 5), commands) }
+        compose.runOnIdle { assertCommands(listOf(0.4 to 5)) }
     }
 
     @Test
     fun tapZeroStopsSuction() {
         showDashboard(initialLevel = 4)
         tapLevel(0)
-        compose.runOnIdle { assertEquals(listOf(0.0 to 5), commands) }
+        compose.runOnIdle { assertCommands(listOf(0.0 to 5)) }
     }
 
     @Test
     fun tapPreservesSelectedMode() {
         showDashboard(mode = 1)
         tapLevel(3)
-        compose.runOnIdle { assertEquals(listOf(0.6 to 1), commands) }
+        compose.runOnIdle { assertCommands(listOf(0.6 to 1)) }
     }
 
     @Test
@@ -98,6 +101,6 @@ class DashboardSliderTest {
         compose.onNode(suctionSlider).performTouchInput {
             swipe(Offset(1f, centerY), Offset(width * 0.8f, centerY), durationMillis = 300)
         }
-        compose.runOnIdle { assertEquals(listOf(0.8 to 5), commands) }
+        compose.runOnIdle { assertCommands(listOf(0.8 to 5)) }
     }
 }
