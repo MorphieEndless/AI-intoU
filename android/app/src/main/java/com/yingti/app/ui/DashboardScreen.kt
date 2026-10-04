@@ -209,6 +209,12 @@ fun DashboardScreen(
                 },
                 onModeChange = { suctionMode = it },
                 onLevelChange = { suctionDragging = true; suctionLevel = it },
+                onLevelChangeFinished = {
+                    // A tap updates and commits in the same frame; read the live state here.
+                    suctionDragging = false
+                    val level = suctionLevel.roundToInt().coerceIn(0, 5)
+                    onSuction(level / 5.0, suctionMode)
+                },
                 onSuction = { value, mode -> suctionDragging = false; onSuction(value, mode) },
                 onStopSuction = {
                     suctionDragging = false
@@ -237,8 +243,7 @@ private fun StatusCard(modifier: Modifier, icon: androidx.compose.ui.graphics.ve
         Column(Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(icon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
-                Spacer(Modifier.width(8.dp))
-                Text(label, style = MaterialTheme.typography.labelLarge)
+                Spacer(Modifier.height(10.dp))
             }
             Spacer(Modifier.height(10.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -274,6 +279,7 @@ private fun SuctionCard(
     onToyPreset: (ToyPreset) -> Unit,
     onModeChange: (Int) -> Unit,
     onLevelChange: (Float) -> Unit,
+    onLevelChangeFinished: () -> Unit,
     onSuction: (Double, Int) -> Unit,
     onStopSuction: () -> Unit,
 ) {
@@ -402,10 +408,7 @@ private fun SuctionCard(
                         onValueChange = onLevelChange,
                         valueRange = 0f..5f,
                         steps = 4,
-                        onValueChangeFinished = {
-                            val lvl = level.roundToInt()
-                            if (lvl == 0) onStopSuction() else onSuction(lvl / 5.0, mode)
-                        },
+                        onValueChangeFinished = onLevelChangeFinished,
                     )
                 }
             }
@@ -453,10 +456,8 @@ internal fun ProtocolDebugCard(lastMessage: String, onSendRaw: (String) -> Unit)
                 Button(
                     onClick = {
                         val hex = rawInput.trim().replace(" ", "").uppercase()
-                        if (isValidHex(hex)) {
-                            onSendRaw(hex)
-                            sentConfirm = true
-                        }
+                        onSendRaw(hex)
+                        sentConfirm = true
                     },
                     enabled = isValidHex(rawInput),
                 ) {
