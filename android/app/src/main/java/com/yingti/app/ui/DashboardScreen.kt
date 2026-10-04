@@ -243,7 +243,8 @@ private fun StatusCard(modifier: Modifier, icon: androidx.compose.ui.graphics.ve
         Column(Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(icon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(label, style = MaterialTheme.typography.labelLarge)
             }
             Spacer(Modifier.height(10.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -456,8 +457,10 @@ internal fun ProtocolDebugCard(lastMessage: String, onSendRaw: (String) -> Unit)
                 Button(
                     onClick = {
                         val hex = rawInput.trim().replace(" ", "").uppercase()
-                        onSendRaw(hex)
-                        sentConfirm = true
+                        if (isValidHex(hex)) {
+                            onSendRaw(hex)
+                            sentConfirm = true
+                        }
                     },
                     enabled = isValidHex(rawInput),
                 ) {
