@@ -1,5 +1,6 @@
 package com.yingti.app.ui
 
+import android.app.Application
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.semantics.SemanticsProperties
@@ -21,7 +22,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [28])
+@Config(sdk = [28], application = Application::class)
 class DashboardSliderTest {
     @get:Rule
     val compose = createComposeRule()
