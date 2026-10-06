@@ -8,9 +8,12 @@ from .api_token import ApiToken, TOKEN_KINDS, DEFAULT_SCOPES
 from .device import Device
 from .pattern import Pattern
 from .safety_config import SafetyConfig
+from .library import LibraryPattern, LibraryImport
 
 __all__ = [
     "Base",
+    "LibraryPattern",
+    "LibraryImport",
     "User",
     "ApiToken",
     "TOKEN_KINDS",

@@ -3,6 +3,8 @@ package com.yingti.app.patterns
 import com.yingti.app.auth.ConnectionConfig
 import kotlinx.coroutines.suspendCancellableCoroutine
 import okhttp3.*
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.io.IOException
 import java.util.concurrent.TimeUnit
@@ -10,28 +12,50 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
 /** The app reads the MCP user's existing server library; it never scrapes tool prose. */
-class PatternApi(private val config: ConnectionConfig) {
+interface LibraryApi {
+    suspend fun list(offset: Int = 0, filter: String = "all", query: String = ""): PatternPage
+    suspend fun get(id: String): JSONObject
+    suspend fun patch(id: String, changes: JSONObject): JSONObject
+    suspend fun delete(id: String)
+    suspend fun restore(id: String): JSONObject
+}
+
+class PatternApi(private val config: ConnectionConfig) : LibraryApi {
     private val client = OkHttpClient.Builder().connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS).callTimeout(20, TimeUnit.SECONDS)
         .followRedirects(false).followSslRedirects(false).build()
 
-    suspend fun list(offset: Int = 0): PatternPage {
-        val json = JSONObject(request("GET", "?offset=$offset&limit=30"))
+    override suspend fun list(offset: Int, filter: String, query: String): PatternPage {
+        require(offset >= 0 && filter in listOf("all", "liked", "favorites") && query.length <= 120)
+        val url = HttpUrl.Builder().scheme("https").host("example.com")
+            .addQueryParameter("offset", offset.toString()).addQueryParameter("limit", "30")
+            .addQueryParameter("include_steps", "true").addQueryParameter("filter", filter).addQueryParameter("q", query).build()
+        val json = JSONObject(request("GET", "?${url.encodedQuery}"))
         val list = json.getJSONArray("patterns")
         return PatternPage((0 until list.length()).map { PatternSummary.from(list.getJSONObject(it)) }, json.getInt("total"))
     }
-    suspend fun get(id: String): JSONObject {
-        require(id.matches(Regex("[0-9a-f]{12}")))
-        return JSONObject(request("GET", "/$id")).also { playbackCommand(it) }
+    override suspend fun get(id: String): JSONObject {
+        validateId(id)
+        return JSONObject(request("GET", "/$id")).also { PatternDefinition.from(it) }
     }
-    suspend fun delete(id: String) {
-        require(id.matches(Regex("[0-9a-f]{12}")))
+    override suspend fun patch(id: String, changes: JSONObject): JSONObject {
+        validateId(id)
+        require(changes.length() > 0 && changes.keys().asSequence().all { it in setOf("is_liked", "is_favorite", "description") })
+        return JSONObject(request("PATCH", "/$id", changes)).also { PatternDefinition.from(it) }
+    }
+    override suspend fun restore(id: String): JSONObject {
+        validateId(id)
+        return JSONObject(request("POST", "/$id/restore", JSONObject())).also { PatternDefinition.from(it) }
+    }
+    private fun validateId(id: String) { require(id == "builtin-wave" || id.matches(Regex("[0-9a-f]{12}"))) }
+    override suspend fun delete(id: String) {
+        validateId(id)
         request("DELETE", "/$id")
     }
-    private suspend fun request(method: String, suffix: String): String = suspendCancellableCoroutine { continuation ->
+    private suspend fun request(method: String, suffix: String, body: JSONObject? = null): String = suspendCancellableCoroutine { continuation ->
         val request = Request.Builder().url(ConnectionConfig.resolveHttpPath(config.normalizedBaseUrl, "/patterns") + suffix)
             .header("Authorization", "Bearer ${config.token.trim()}").header("Accept", "application/json")
-            .method(method, null).build()
+            .method(method, body?.toString()?.toRequestBody("application/json; charset=utf-8".toMediaType())).build()
         val call = client.newCall(request)
         continuation.invokeOnCancellation { call.cancel() }
         call.enqueue(object : Callback {
@@ -45,6 +69,8 @@ class PatternApi(private val config: ConnectionConfig) {
                             when (it.code) {
                                 401, 403 -> "波形库认证失败，请确认手机与 AI 使用同一用户的 Token"
                                 404 -> "波形不存在，或服务器尚未升级到支持客户端波形库的版本"
+                                409 -> "当前操作无法完成，可能已超过撤销时间或存在同名波形"
+                                422 -> "波形备注或标记格式不正确，请检查后重试"
                                 429 -> "请求过于频繁，请稍后刷新"
                                 else -> "波形库请求失败（HTTP ${it.code}）"
                             }
@@ -62,10 +88,12 @@ class PatternApi(private val config: ConnectionConfig) {
 }
 
 data class PatternPage(val patterns: List<PatternSummary>, val total: Int)
-data class PatternSummary(val id: String, val name: String, val description: String, val steps: Int, val repeat: Int, val totalMs: Long) {
+data class PatternSummary(val id: String, val name: String, val description: String, val steps: Int, val repeat: Int, val totalMs: Long,
+    val definition: PatternDefinition? = null) {
     companion object {
         fun from(j: JSONObject) = PatternSummary(j.getString("id"), j.getString("name"), j.optString("description"),
-            j.getInt("step_count"), j.getInt("repeat"), j.getLong("total_ms"))
+            j.getInt("step_count"), j.getInt("repeat"), j.getLong("total_ms"),
+            if (j.optJSONArray("steps") != null) PatternDefinition.from(j) else null)
     }
 }
 

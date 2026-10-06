@@ -1,5 +1,6 @@
 package com.yingti.app
 
+import com.yingti.app.patterns.PatternPlayback
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
@@ -14,6 +15,7 @@ data class BridgeState(
     val suctionMode: Int = 5,
     val lastMessage: String = "等待启动",
     val error: String? = null,
+    val patternPlayback: PatternPlayback? = null,
 )
 
 object AppState {

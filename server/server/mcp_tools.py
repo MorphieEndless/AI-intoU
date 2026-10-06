@@ -634,7 +634,7 @@ _PATTERN_STEPS_PARAM = {
         ),
         "description": {
             "type": "string",
-            "description": "Optional human-readable note about the pattern",
+            "description": "Optional human-readable note about the pattern (at most 120 characters)",
             "default": "",
         },
         "device": {
@@ -678,7 +678,7 @@ async def create_pattern(
 )
 async def list_patterns(**kwargs) -> str:
     user_id = current_user_id.get()
-    patterns = pattern_store.list(user_id)
+    patterns = [p.model_dump() for p in pattern_store.library(user_id)]
     if not patterns:
         return (
             "No saved patterns yet. Create one with create_pattern "
@@ -697,8 +697,23 @@ async def list_patterns(**kwargs) -> str:
         )
         if pattern.get("description"):
             line += f" — {pattern['description']}"
+        line += f" — is_liked={str(pattern['is_liked']).lower()}, is_favorite={str(pattern['is_favorite']).lower()}"
         lines.append(line)
     return "\n".join(lines)
+
+
+@_register_tool(
+    "get_pattern_preferences",
+    "Read this user's waveform preferences as structured JSON. is_liked is feedback for the AI; "
+    "is_favorite is the user's own collection. Includes notes and the built-in example. "
+    "Read-only: the AI must not infer permission to change personal preferences.",
+    {},
+)
+async def get_pattern_preferences(**kwargs) -> str:
+    from app.schemas.patterns import PreferenceEntry, PreferenceView
+    entries = [PreferenceEntry(**p.model_dump(exclude={"steps"}), total_ms=p.total_ms())
+        for p in pattern_store.library(current_user_id.get())]
+    return PreferenceView(patterns=entries).model_dump_json()
 
 
 @_register_tool(
@@ -790,6 +805,7 @@ async def play_pattern(
         "type": "custom_pattern",
         "device": device,
         "name": pattern.name,
+        "id": pattern.id,
         "steps": steps,
         "repeat": pattern.repeat,
     }

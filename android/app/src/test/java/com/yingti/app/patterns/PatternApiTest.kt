@@ -33,8 +33,45 @@ class PatternApiTest {
             val api = PatternApi(ConnectionConfig(server.url("/bridge").toString(), token = "test-only-token"))
             assertEquals(0, api.list().total)
             val request = server.takeRequest()
-            assertEquals("/bridge/patterns?offset=0&limit=30", request.path)
+            assertEquals("/bridge/patterns?offset=0&limit=30&include_steps=true&filter=all&q=", request.path)
             assertEquals("Bearer test-only-token", request.getHeader("Authorization"))
+        } finally { server.shutdown() }
+    }
+    @Test fun metadataPatchUsesTypedBodyAndBuiltinId() = runBlocking {
+        val server = MockWebServer(); server.start()
+        try {
+            server.enqueue(MockResponse().setBody(pattern().put("id", "builtin-wave").put("is_liked", true).toString()))
+            val api = PatternApi(ConnectionConfig(server.url("/bridge").toString(), token = "test-only-token"))
+            assertTrue(api.patch("builtin-wave", JSONObject().put("is_liked", true)).getBoolean("is_liked"))
+            val request = server.takeRequest()
+            assertEquals("PATCH", request.method)
+            assertEquals("/bridge/patterns/builtin-wave", request.path)
+            assertTrue(JSONObject(request.body.readUtf8()).getBoolean("is_liked"))
+            assertEquals("Bearer test-only-token", request.getHeader("Authorization"))
+        } finally { server.shutdown() }
+    }
+    @Test fun searchAndFilterAreEncodedBeforePagination() = runBlocking {
+        val server = MockWebServer(); server.start()
+        try {
+            server.enqueue(MockResponse().setBody("""{"patterns":[],"total":0}"""))
+            val api = PatternApi(ConnectionConfig(server.url("/").toString(), token = "test-only-token"))
+            api.list(30, "favorites", "留白 & 呼吸")
+            val url = server.takeRequest().requestUrl!!
+            assertEquals("favorites", url.queryParameter("filter"))
+            assertEquals("留白 & 呼吸", url.queryParameter("q"))
+            assertEquals("30", url.queryParameter("offset"))
+            assertEquals("true", url.queryParameter("include_steps"))
+        } finally { server.shutdown() }
+    }
+    @Test fun restoreIsAuthenticatedPostNotPlayback() = runBlocking {
+        val server = MockWebServer(); server.start()
+        try {
+            server.enqueue(MockResponse().setBody(pattern().toString()))
+            val api = PatternApi(ConnectionConfig(server.url("/").toString(), token = "test-only-token"))
+            api.restore("abc123456789")
+            val request = server.takeRequest()
+            assertEquals("POST", request.method)
+            assertEquals("/patterns/abc123456789/restore", request.path)
         } finally { server.shutdown() }
     }
     @Test fun unauthorizedFailsWithoutExposingServerBody() = runBlocking {

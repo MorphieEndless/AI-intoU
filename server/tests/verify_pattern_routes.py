@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 
 _tmp = tempfile.TemporaryDirectory()
+os.environ["SB_DB_PATH"] = str(Path(_tmp.name) / "test.db")
 os.environ["SB_PATTERNS_DIR"] = str(Path(_tmp.name) / "patterns")
 os.environ["SB_SECRET_KEY"] = "offline-pattern-route-verification-key-123456"
 os.environ["SB_STATIC_BEARER_TOKEN"] = "offline-static-token-for-pattern-route-tests"
@@ -22,7 +23,7 @@ client = TestClient(app)
 class PatternRoutesTest(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
-        self.store = PatternStore(self.temp.name)
+        self.store = PatternStore(self.temp.name, db_path=str(Path(self.temp.name) / "test.db"))
         pattern_routes.pattern_store = self.store
         mcp_tools.pattern_store = self.store
         self.token = create_token("test-user", "test")
@@ -35,7 +36,7 @@ class PatternRoutesTest(unittest.TestCase):
             self.assertEqual(getattr(client, method)(url).status_code, 401)
     def test_other_user_cannot_read_or_delete(self):
         headers = {"Authorization": "Bearer " + create_token("other-user", "other")}
-        self.assertEqual(client.get("/patterns", headers=headers).json()["patterns"], [])
+        self.assertEqual(client.get("/patterns", headers=headers).json()["patterns"][0]["id"], "builtin-wave")
         for method in ["get", "delete"]:
             self.assertEqual(getattr(client, method)("/patterns/" + self.pattern.id, headers=headers).status_code, 404)
         self.assertIsNotNone(self.store.get("test-user", self.pattern.id))
@@ -44,7 +45,7 @@ class PatternRoutesTest(unittest.TestCase):
         mcp_tools.current_user_id.set("test-user")
         asyncio.run(mcp_tools.create_pattern("AI新建", [{"duration_ms": 200, "constrict": 0.5}]))
         data = client.get("/patterns", headers=self.headers).json()
-        self.assertEqual(data["total"], 2)
+        self.assertEqual(data["total"], 3)
         self.assertNotIn("steps", data["patterns"][0])
         detail = client.get("/patterns/" + self.pattern.id, headers=self.headers).json()
         self.assertEqual(detail["intensity_scale"], 0.4)
@@ -56,14 +57,14 @@ class PatternRoutesTest(unittest.TestCase):
         client.delete("/patterns/" + self.pattern.id, headers=self.headers)
         self.assertIsNotNone(self.store.get("test-user", other.id))
     def test_pagination_and_invalid_id(self):
-        self.assertEqual(client.get("/patterns?offset=1&limit=1", headers=self.headers).json()["patterns"], [])
+        self.assertEqual(client.get("/patterns?offset=2&limit=1", headers=self.headers).json()["patterns"], [])
         self.assertEqual(client.get("/patterns?limit=51", headers=self.headers).status_code, 400)
         self.assertEqual(client.get("/patterns?offset=-1", headers=self.headers).status_code, 400)
         self.assertEqual(client.get("/patterns/not-an-id", headers=self.headers).status_code, 404)
     def test_static_token_uses_same_user_as_mcp(self):
         self.store.create("static-bearer-user", "static", [{"duration_ms": 100}])
         headers = {"Authorization": "Bearer " + os.environ["SB_STATIC_BEARER_TOKEN"]}
-        self.assertEqual(client.get("/patterns", headers=headers).json()["total"], 1)
+        self.assertEqual(client.get("/patterns", headers=headers).json()["total"], 2)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
