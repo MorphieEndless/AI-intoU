@@ -1,0 +1,15 @@
+# Keep secrets, runtime data and local clutter out of the build context.
+# Configuration reaches the container through compose `env_file`, not the image.
+.env
+*.db
+*.db-wal
+*.db-shm
+*.tar.gz
+__pycache__/
+*.py[cod]
+.pytest_cache/
+tests/
+phone/
+termux_relay*.py
+README*.md
+CHANGELOG.md
