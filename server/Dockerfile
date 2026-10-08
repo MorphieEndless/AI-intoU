@@ -6,13 +6,21 @@ WORKDIR /app
 COPY requirements-server.txt .
 RUN pip install --no-cache-dir -r requirements-server.txt
 
-# Copy server code
+# Copy server code: the legacy entry point (server/) imports the layered
+# package (app/), which needs its migrations (alembic/) at startup; the
+# management CLI and migration script ship too so `docker compose exec`
+# can create accounts and invites.
+COPY alembic.ini ./
+COPY alembic/ ./alembic/
+COPY app/ ./app/
+COPY scripts/ ./scripts/
 COPY server/ ./server/
 
 # Create data directory for SQLite
 RUN mkdir -p /data
 
 ENV SB_DB_PATH=/data/signal_bridge.db
+ENV SB_PATTERNS_DIR=/data/patterns
 ENV SB_HOST=0.0.0.0
 ENV SB_PORT=8420
 

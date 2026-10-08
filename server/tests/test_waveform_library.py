@@ -7,7 +7,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from server import pattern_routes, mcp_tools
-from server.auth import create_token
+from conftest import phone_token_for
 from server.pattern_store import PatternStore
 
 
@@ -19,7 +19,7 @@ def library(tmp_path, monkeypatch):
     app = FastAPI()
     app.include_router(pattern_routes.router)
     with TestClient(app) as client:
-        yield store, client, {"Authorization": "Bearer " + create_token("alice", "alice")}
+        yield store, client, {"Authorization": "Bearer " + phone_token_for("alice")}
 
 
 def test_builtin_is_unique_and_personal(library):
@@ -49,7 +49,7 @@ def test_patch_is_partial_strict_and_id_scoped(library):
     assert after.steps == p.steps and after.repeat == before["repeat"]
     for body in [{"is_liked": "true"}, {"is_liked": None}, {"steps": []}, {"user_id": "bob"}, {"description": "x" * 121}, {}]:
         assert client.patch(f"/patterns/{p.id}", headers=headers, json=body).status_code == 422
-    other = {"Authorization": "Bearer " + create_token("bob", "bob")}
+    other = {"Authorization": "Bearer " + phone_token_for("bob")}
     for method in ["get", "patch", "delete"]:
         kwargs = {"json": {"is_liked": False}} if method == "patch" else {}
         assert getattr(client, method)(f"/patterns/{p.id}", headers=other, **kwargs).status_code == 404
@@ -75,7 +75,7 @@ def test_delete_and_undo_are_private_and_do_not_control(library, monkeypatch):
     monkeypatch.setattr(mcp_tools.registry, "send_to_user", forbidden)
     assert client.delete(f"/patterns/{p.id}", headers=headers).status_code == 200
     assert store.get("alice", p.id) is None
-    other = {"Authorization": "Bearer " + create_token("bob", "bob")}
+    other = {"Authorization": "Bearer " + phone_token_for("bob")}
     assert client.post(f"/patterns/{p.id}/restore", headers=other).status_code == 404
     assert client.post(f"/patterns/{p.id}/restore", headers=headers).status_code == 200
     assert store.get("alice", p.id)

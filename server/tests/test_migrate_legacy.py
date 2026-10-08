@@ -130,3 +130,146 @@ def test_fresh_install_creates_empty_schema(tmp_path):
                        "renamed": [], "skipped": False}
     assert {"users", "api_tokens", "devices", "patterns",
             "safety_config"} <= table_names(db)
+
+
+# ── atomic, automatic migration (multi-user onboarding) ────────────────────
+
+def snapshot(db) -> dict:
+    """Every table's full contents — the 'byte-for-byte unchanged' check."""
+    conn = sqlite3.connect(db)
+    try:
+        return {
+            name: sorted(conn.execute(f'SELECT * FROM "{name}"').fetchall(), key=repr)
+            for (name,) in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
+        }
+    finally:
+        conn.close()
+
+
+def add_library_tables(db):
+    """What production looks like: the waveform library ran on a legacy DB."""
+    conn = sqlite3.connect(db)
+    conn.execute(
+        "CREATE TABLE library_patterns (user_id TEXT NOT NULL, id TEXT NOT NULL,"
+        " definition TEXT NOT NULL, description TEXT NOT NULL DEFAULT '',"
+        " is_liked BOOLEAN NOT NULL DEFAULT 0, is_favorite BOOLEAN NOT NULL DEFAULT 0,"
+        " updated_at FLOAT NOT NULL DEFAULT 0, deleted_at FLOAT,"
+        " PRIMARY KEY (user_id, id))")
+    conn.execute(
+        "CREATE TABLE library_imports (user_id VARCHAR NOT NULL PRIMARY KEY)")
+    conn.execute("INSERT INTO library_patterns VALUES ('u1','p1','{\"steps\":[]}','mine',1,0,1.5,NULL)")
+    conn.execute("INSERT INTO library_patterns VALUES ('u1','p2','{\"steps\":[]}','',0,1,2.5,9.0)")
+    conn.execute("INSERT INTO library_imports VALUES ('u1')")
+    conn.commit()
+    conn.close()
+
+
+def test_needs_legacy_migration_detection(legacy_env, tmp_path):
+    from app.infra.legacy_migration import needs_legacy_migration
+
+    db, patterns = legacy_env
+    assert needs_legacy_migration(db) is True
+    assert needs_legacy_migration(tmp_path / "missing.db") is False
+    migrate(db, patterns)
+    assert needs_legacy_migration(db) is False
+
+
+def test_startup_hook_migrates_and_keeps_a_backup(legacy_env):
+    from app.infra.legacy_migration import prepare_database
+
+    db, patterns = legacy_env
+    before = snapshot(db)
+    summary = prepare_database(str(db), str(patterns))
+    assert summary is not None and summary["users"] == 2
+
+    backups = list(db.parent.glob(f"{db.name}.pre-multiuser-*.bak"))
+    assert len(backups) == 1 and str(backups[0]) == summary["backup"]
+    assert snapshot(backups[0]) == before          # the backup is the original
+    assert not list(db.parent.glob("*.migrating"))  # work copy cleaned up
+    assert "alembic_version" in table_names(db)
+    assert "invites" in table_names(db)
+
+    # second start: nothing to do, no second backup
+    assert prepare_database(str(db), str(patterns)) is None
+    assert len(list(db.parent.glob(f"{db.name}.pre-multiuser-*.bak"))) == 1
+
+
+def test_failure_midway_leaves_the_original_untouched(legacy_env, monkeypatch):
+    import app.infra.legacy_migration as lm
+
+    db, patterns = legacy_env
+    before = snapshot(db)
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("disk on fire")
+
+    monkeypatch.setattr(lm, "_copy_users", boom)
+    with pytest.raises(RuntimeError, match="disk on fire"):
+        lm.prepare_database(str(db), str(patterns))
+
+    assert snapshot(db) == before
+    assert lm.needs_legacy_migration(db) is True
+    assert not list(db.parent.glob("*.migrating"))
+
+    # the next start simply tries again and succeeds
+    monkeypatch.undo()
+    summary = lm.prepare_database(str(db), str(patterns))
+    assert summary["users"] == 2
+
+
+def test_user_count_mismatch_aborts(legacy_env, monkeypatch):
+    import app.infra.legacy_migration as lm
+
+    db, patterns = legacy_env
+    before = snapshot(db)
+    real = lm._copy_users
+
+    def drop_one(conn, db_path, dry_run, src="legacy_users"):
+        real(conn, db_path, dry_run, src)
+        conn.execute("DELETE FROM users WHERE id = 'u2'")
+        conn.commit()
+        return 1
+
+    monkeypatch.setattr(lm, "_copy_users", drop_one)
+    with pytest.raises(RuntimeError, match="user count mismatch"):
+        lm.migrate(db, patterns)
+    assert snapshot(db) == before
+
+
+def test_duplicate_pattern_ids_are_skipped_not_fatal(legacy_env):
+    db, patterns = legacy_env
+    dup = json.loads((patterns / "u1.json").read_text(encoding="utf-8"))
+    (patterns / "u2.json").write_text(json.dumps(dup), encoding="utf-8")
+    (patterns / "broken.json").write_text("{not json", encoding="utf-8")
+    summary = migrate(db, patterns)
+    assert summary["patterns"] == 1 and summary["users"] == 2
+
+
+def test_safety_config_for_a_vanished_user_is_skipped(legacy_env):
+    db, patterns = legacy_env
+    conn = sqlite3.connect(db)
+    conn.execute("INSERT INTO safety_config VALUES ('ghost',1,NULL,NULL,NULL,NULL,NULL,'2026-03-01')")
+    conn.commit()
+    conn.close()
+    summary = migrate(db, patterns)
+    assert summary["safety_config"] == 1
+
+
+def test_waveform_library_survives_the_migration(legacy_env):
+    from app.models import LibraryImport, LibraryPattern
+
+    db, patterns = legacy_env
+    add_library_tables(db)
+    migrate(db, patterns)
+
+    engine = create_engine(f"sqlite:///{db}")
+    factory = sessionmaker(bind=engine, expire_on_commit=False)
+    with factory() as s:
+        rows = {r.id: r for r in s.scalars(select(LibraryPattern))}
+        assert set(rows) == {"p1", "p2"}
+        assert rows["p1"].user_id == "u1" and rows["p1"].description == "mine"
+        assert rows["p1"].is_liked and rows["p2"].is_favorite and rows["p2"].deleted_at == 9.0
+        assert s.scalar(select(func.count()).select_from(LibraryImport)) == 1
+        # the library's owner id still resolves to the migrated owner account
+        assert s.get(User, "u1").is_admin == 1

@@ -22,7 +22,11 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.yingti.app.auth.AccountSession
+import com.yingti.app.auth.ApiClient
+import com.yingti.app.auth.AuthMode
 import com.yingti.app.auth.ConnectionConfig
+import com.yingti.app.auth.ConnectionTestResult
 import com.yingti.app.relay.RelayService
 import com.yingti.app.ui.*
 import kotlinx.coroutines.launch
@@ -32,7 +36,14 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.distinctUntilChanged
 
-enum class AppScreen { DASHBOARD, PATTERNS, LOGS, SETTINGS }
+enum class AppScreen {
+    DASHBOARD, PATTERNS, LOGS, SETTINGS,
+
+    /** Sub-pages of 设置: the bottom bar keeps 设置 highlighted, back returns to 设置. */
+    AI_ACCESS, ADMIN;
+
+    val parentTab: AppScreen get() = if (this == AI_ACCESS || this == ADMIN) SETTINGS else this
+}
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -66,6 +77,10 @@ class MainActivity : ComponentActivity() {
                 var connectionStatus by remember { mutableStateOf<String?>(null) }
                 var connectionError by remember { mutableStateOf<String?>(null) }
                 var splashVisible by remember { mutableStateOf(true) }
+                var isAdmin by remember { mutableStateOf(app.tokenStore.isAdmin) }
+                var aiWelcome by remember { mutableStateOf(false) }
+                val accountSession = remember { AccountSession(app.apiClient, app.tokenStore) }
+                val deviceLabel = remember { ApiClient.deviceLabel(Build.MODEL) }
 
                 val permissionLauncher = rememberLauncherForActivityResult(
                     ActivityResultContracts.RequestMultiplePermissions()
@@ -102,12 +117,17 @@ class MainActivity : ComponentActivity() {
                     Toast.makeText(context, "$label 已复制", Toast.LENGTH_SHORT).show()
                 }
 
-                fun saveAndStart(config: ConnectionConfig, password: String, rememberPassword: Boolean) {
+                fun runConnect(
+                    password: String,
+                    rememberPassword: Boolean,
+                    afterSuccess: AppScreen,
+                    call: suspend () -> Result<ConnectionTestResult>,
+                ) {
                     loading = true
                     connectionStatus = null
                     connectionError = null
                     scope.launch {
-                        app.apiClient.testConnection(config, password)
+                        call()
                             .onSuccess { result ->
                                 connectionStatus = result.message
                                 val wasConfigured = configured
@@ -117,14 +137,27 @@ class MainActivity : ComponentActivity() {
                                     app.tokenStore.currentConfig()
                                 }
                                 savedPassword = if (rememberPassword) password else ""
+                                isAdmin = app.tokenStore.isAdmin
                                 configured = true
-                                screen = AppScreen.DASHBOARD
+                                screen = afterSuccess
                                 if (wasConfigured && serviceRunning) {
                                     RelayService.send(context, RelayService.ACTION_RESTART)
                                 }
                             }
                             .onFailure { connectionError = it.message ?: "连接失败" }
                         loading = false
+                    }
+                }
+
+                fun saveAndStart(config: ConnectionConfig, password: String, rememberPassword: Boolean) =
+                    runConnect(password, rememberPassword, AppScreen.DASHBOARD) {
+                        app.apiClient.testConnection(config, password, deviceLabel)
+                    }
+
+                fun registerAndStart(config: ConnectionConfig, invite: String, password: String, rememberPassword: Boolean) {
+                    aiWelcome = true
+                    runConnect(password, rememberPassword, AppScreen.AI_ACCESS) {
+                        app.apiClient.registerAndConnect(config, invite, password, deviceLabel)
                     }
                 }
 
@@ -140,6 +173,7 @@ class MainActivity : ComponentActivity() {
                     app.tokenStore.clearSession()
                     connectionConfig = connectionConfig.copy(token = "")
                     configured = false
+                    isAdmin = false
                     connectionStatus = null
                     connectionError = null
                     screen = AppScreen.SETTINGS
@@ -213,7 +247,9 @@ class MainActivity : ComponentActivity() {
                                 val lastMessage by messageFlow.collectAsStateWithLifecycle(initialValue = "")
                                 SettingsPages(
                                     devMode, configured, lastMessage,
-                                    { RelayService.sendRaw(context, it) }, ::logout
+                                    { RelayService.sendRaw(context, it) }, ::logout,
+                                    showAdmin = configured && isAdmin && connectionConfig.authMode == AuthMode.ACCOUNT,
+                                    onAdmin = { screen = AppScreen.ADMIN },
                                 ) {
                                     ConnectionSettingsScreen(
                                         initialConfig = connectionConfig,
@@ -247,9 +283,30 @@ class MainActivity : ComponentActivity() {
                                         },
                                         onCopy = ::copyToClipboard,
                                         onClearHistory = app.history::clear,
+                                        onRegister = ::registerAndStart,
+                                        onOpenAiAccess = {
+                                            aiWelcome = false
+                                            screen = AppScreen.AI_ACCESS
+                                        },
+                                        configured = configured,
                                     )
                                 }
                             }
+                            AppScreen.AI_ACCESS -> AiAccessScreen(
+                                api = if (connectionConfig.authMode == AuthMode.ACCOUNT) accountSession else null,
+                                config = connectionConfig,
+                                phoneTokenId = app.tokenStore.phoneTokenId,
+                                welcome = aiWelcome,
+                                onBack = { screen = AppScreen.SETTINGS },
+                                onCopy = ::copyToClipboard,
+                                onHasAiAccess = { UiPrefs.setAiAccessDone(context, true) },
+                            )
+                            AppScreen.ADMIN -> AdminScreen(
+                                api = accountSession,
+                                serverUrl = connectionConfig.normalizedBaseUrl,
+                                onBack = { screen = AppScreen.SETTINGS },
+                                onCopy = ::copyToClipboard,
+                            )
                         }
                     }
 

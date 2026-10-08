@@ -8,13 +8,32 @@ _tmp = tempfile.TemporaryDirectory()
 os.environ["SB_DB_PATH"] = str(Path(_tmp.name) / "test.db")
 os.environ["SB_PATTERNS_DIR"] = str(Path(_tmp.name) / "patterns")
 os.environ["SB_SECRET_KEY"] = "offline-pattern-route-verification-key-123456"
-os.environ["SB_STATIC_BEARER_TOKEN"] = "offline-static-token-for-pattern-route-tests"
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from server import pattern_routes, mcp_tools
-from server.auth import create_token
 from server.pattern_store import PatternStore
+from app.db import session_scope, upgrade_to_head
+from app.domain.identity import hash_password, mint_token
+from app.models import User
+
+
+def phone_token(user_id):
+    """A phone token for an account with a fixed id (the App's credential)."""
+    upgrade_to_head()
+    with session_scope() as s:
+        user = s.get(User, user_id)
+        if user is None:
+            user = User(id=user_id, username=user_id, password_hash=hash_password("password-123"))
+            s.add(user)
+            s.flush()
+        return mint_token(s, user, name="test", kind="phone")[0]
+
+
+def agent_token(user_id):
+    phone_token(user_id)
+    with session_scope() as s:
+        return mint_token(s, s.get(User, user_id), name="ai", kind="agent")[0]
 
 app = FastAPI()
 app.include_router(pattern_routes.router)
@@ -26,7 +45,7 @@ class PatternRoutesTest(unittest.TestCase):
         self.store = PatternStore(self.temp.name, db_path=str(Path(self.temp.name) / "test.db"))
         pattern_routes.pattern_store = self.store
         mcp_tools.pattern_store = self.store
-        self.token = create_token("test-user", "test")
+        self.token = phone_token("test-user")
         self.headers = {"Authorization": "Bearer " + self.token}
         self.pattern = self.store.create("test-user", "样例", [{"duration_ms": 100, "vibrate": 0.5}], intensity_scale=0.4)
     def tearDown(self):
@@ -35,7 +54,7 @@ class PatternRoutesTest(unittest.TestCase):
         for method, url in [("get", "/patterns"), ("get", "/patterns/" + self.pattern.id), ("delete", "/patterns/" + self.pattern.id)]:
             self.assertEqual(getattr(client, method)(url).status_code, 401)
     def test_other_user_cannot_read_or_delete(self):
-        headers = {"Authorization": "Bearer " + create_token("other-user", "other")}
+        headers = {"Authorization": "Bearer " + phone_token("other-user")}
         self.assertEqual(client.get("/patterns", headers=headers).json()["patterns"][0]["id"], "builtin-wave")
         for method in ["get", "delete"]:
             self.assertEqual(getattr(client, method)("/patterns/" + self.pattern.id, headers=headers).status_code, 404)
@@ -61,10 +80,10 @@ class PatternRoutesTest(unittest.TestCase):
         self.assertEqual(client.get("/patterns?limit=51", headers=self.headers).status_code, 400)
         self.assertEqual(client.get("/patterns?offset=-1", headers=self.headers).status_code, 400)
         self.assertEqual(client.get("/patterns/not-an-id", headers=self.headers).status_code, 404)
-    def test_static_token_uses_same_user_as_mcp(self):
-        self.store.create("static-bearer-user", "static", [{"duration_ms": 100}])
-        headers = {"Authorization": "Bearer " + os.environ["SB_STATIC_BEARER_TOKEN"]}
-        self.assertEqual(client.get("/patterns", headers=headers).json()["total"], 2)
+    def test_agent_token_has_no_rest_library_access(self):
+        # AI clients use the MCP tools; the REST library is the App's.
+        headers = {"Authorization": "Bearer " + agent_token("test-user")}
+        self.assertEqual(client.get("/patterns", headers=headers).status_code, 403)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

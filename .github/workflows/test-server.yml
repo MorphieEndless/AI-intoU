@@ -32,8 +32,6 @@ jobs:
         run: PYTHONPATH=. python -m pytest tests/ -v
       - name: Server verification
         run: python tests/verify_server.py
-      - name: Static Bearer verification
-        run: python tests/verify_static_token.py
       - name: Governor verification
         run: python tests/verify_governor.py
       - name: Numeric inputs verification

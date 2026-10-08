@@ -1,31 +1,29 @@
 """Behavior contract: MCP Streamable HTTP endpoint (POST /mcp).
 
 Freezes the current protocol behavior so the refactor can't silently
-break existing clients. Auth uses the static Bearer token (current
-single-user mode); when M2 lands the unified token system, update the
-AUTH fixture to mint an agent token instead.
+break existing clients. Auth uses a minted agent token (M2b): the only
+credential an AI client gets.
 """
-import os
-
 import pytest
 from fastapi.testclient import TestClient
 
 from server.app import app
 
-STATIC = os.environ["SB_STATIC_BEARER_TOKEN"]
-AUTH = {"Authorization": f"Bearer {STATIC}"}
+AUTH: dict = {}
 
 
 @pytest.fixture()
-def client():
+def client(make_account, mint):
     with TestClient(app) as c:
+        account = make_account()
+        AUTH["Authorization"] = f"Bearer {mint(account['user_id'], 'agent', 'contract')}"
         yield c
 
 
-def rpc(client, method, params=None, req_id=1, headers=AUTH):
+def rpc(client, method, params=None, req_id=1, headers=None):
     return client.post(
         "/mcp",
-        headers=headers,
+        headers=AUTH if headers is None else headers,
         json={"jsonrpc": "2.0", "id": req_id, "method": method,
               "params": params or {}},
     )

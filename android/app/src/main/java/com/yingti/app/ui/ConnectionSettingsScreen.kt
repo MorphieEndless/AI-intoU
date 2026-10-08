@@ -66,6 +66,9 @@ fun ConnectionSettingsScreen(
     onSave: (ConnectionConfig, String, Boolean) -> Unit,
     onCopy: (String, String) -> Unit,
     onClearHistory: () -> Unit = {},
+    onRegister: (ConnectionConfig, String, String, Boolean) -> Unit = { _, _, _, _ -> },
+    onOpenAiAccess: () -> Unit = {},
+    configured: Boolean = false,
 ) {
     val context = LocalContext.current
     fun openProjectPage(url: String) {
@@ -89,6 +92,9 @@ fun ConnectionSettingsScreen(
     var clearConfirmInput by remember { mutableStateOf("") }
     var showFullAuth by remember { mutableStateOf(false) }
     var pasteBlocked by remember { mutableStateOf(false) }
+    var registering by remember { mutableStateOf(false) }
+    var inviteCode by remember { mutableStateOf("") }
+    var confirmPassword by remember { mutableStateOf("") }
 
     val draft = ConnectionConfig(
         serverBaseUrl = server,
@@ -271,7 +277,7 @@ fun ConnectionSettingsScreen(
                     FilterChip(
                         selected = authMode == AuthMode.TOKEN,
                         onClick = { authMode = AuthMode.TOKEN },
-                        label = { Text("Bearer Token") },
+                        label = { Text("手机 Token") },
                     )
                     FilterChip(
                         selected = authMode == AuthMode.ACCOUNT,
@@ -283,7 +289,7 @@ fun ConnectionSettingsScreen(
                     SecretField(
                         value = token,
                         onValueChange = { token = it },
-                        label = "Bearer Token",
+                        label = "手机 Token（aiu_phone_…）",
                         visible = showSecret,
                         onToggleVisibility = { showSecret = !showSecret },
                     )
@@ -308,14 +314,46 @@ fun ConnectionSettingsScreen(
                         Text("记住密码（加密存储，下次自动填充）", style = MaterialTheme.typography.bodySmall)
                     }
                 }
+                if (authMode == AuthMode.ACCOUNT) {
+                    TextButton(onClick = { registering = !registering }, contentPadding = PaddingValues(0.dp)) {
+                        Text(if (registering) "▾ 已有账号，直接登入" else "▸ 有邀请码？注册新账号")
+                    }
+                    if (registering) {
+                        OutlinedTextField(
+                            value = inviteCode,
+                            onValueChange = { inviteCode = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("邀请码（XXXX-XXXX-XXXX）") },
+                            singleLine = true,
+                        )
+                        SecretField(
+                            value = confirmPassword,
+                            onValueChange = { confirmPassword = it },
+                            label = "确认密码",
+                            visible = showSecret,
+                            onToggleVisibility = { showSecret = !showSecret },
+                        )
+                        if (confirmPassword.isNotEmpty() && confirmPassword != password) {
+                            Text("两次输入的密码不一致", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
+                val registerMode = authMode == AuthMode.ACCOUNT && registering
+                val registerReady = formReady && inviteCode.isNotBlank() && password.length >= 8 && confirmPassword == password
                 // 登入：原「保存并启动」，位于记住密码下方，两种认证方式都从这里提交。
                 YingtiPrimaryButton(
-                    onClick = { onSave(draft, password, rememberPassword) },
+                    onClick = {
+                        if (registerMode) onRegister(draft, inviteCode.trim(), password, rememberPassword)
+                        else onSave(draft, password, rememberPassword)
+                    },
                     modifier = Modifier.fillMaxWidth().height(52.dp),
-                    enabled = !loading && formReady,
+                    enabled = !loading && (if (registerMode) registerReady else formReady),
                 ) {
                     if (loading) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                    else Text("登入")
+                    else Text(if (registerMode) "注册并登入" else "登入")
+                }
+                if (registerMode && password.isNotEmpty() && password.length < 8) {
+                    Text("密码至少 8 位", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
                 }
             }
 
@@ -372,47 +410,14 @@ fun ConnectionSettingsScreen(
                 }
             }
 
-            if (token.isNotBlank() && endpoints != null) {
-                SettingsSection("RikkaHub Remote MCP") {
-                    TextButton(
-                        onClick = { showJsonPreview = !showJsonPreview },
-                        contentPadding = PaddingValues(0.dp),
-                    ) {
-                        Text(if (showJsonPreview) "▾ 收起预览" else "▸ 预览完整 JSON")
-                    }
-                    if (showJsonPreview) {
-                        Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = RoundedCornerShape(12.dp)) {
-                            Text(
-                                draft.rikkaHubJson(),
-                                Modifier.fillMaxWidth().heightIn(max = 150.dp)
-                                    .verticalScroll(rememberScrollState()).padding(12.dp),
-                                style = MaterialTheme.typography.bodySmall,
-                                fontFamily = FontFamily.Monospace,
-                            )
-                        }
-                    }
-                    YingtiPrimaryButton(
-                        onClick = { onCopy("RikkaHub 配置", draft.rikkaHubJson()) },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) { Text("复制完整 JSON") }
-
-                    // 下方分两行结构化卡片字段，彻底消灭折行与局促感
-                    McpCopyFieldRow(
-                        label = "MCP URL",
-                        value = draft.mcpUrl,
-                        scrollable = true,
-                        onClick = null,
-                        onCopy = { onCopy("MCP URL", draft.mcpUrl) },
+            if (configured) {
+                SettingsSection("AI 接入") {
+                    Text(
+                        "为 RikkaHub、Cherry Studio、Claude Desktop 等 AI 客户端生成专用 token，一键复制 MCP 配置。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.secondary,
                     )
-                    val authHeader = "Bearer ${token.trim()}"
-                    val maskedAuth = if (token.trim().length > 8) "Bearer ${token.trim().take(4)}••••${token.trim().takeLast(4)}" else "Bearer ••••••••"
-                    McpCopyFieldRow(
-                        label = "Authorization",
-                        value = if (showFullAuth) authHeader else maskedAuth,
-                        scrollable = true,
-                        onClick = { showFullAuth = !showFullAuth },
-                        onCopy = { onCopy("Authorization", authHeader) },
-                    )
+                    YingtiPrimaryButton(onClick = onOpenAiAccess, modifier = Modifier.fillMaxWidth()) { Text("打开 AI 接入") }
                 }
             }
 
@@ -474,7 +479,7 @@ fun ConnectionSettingsScreen(
 }
 
 @Composable
-private fun McpCopyFieldRow(
+internal fun McpCopyFieldRow(
     label: String,
     value: String,
     scrollable: Boolean = true,
@@ -532,7 +537,7 @@ private fun McpCopyFieldRow(
 }
 
 @Composable
-private fun SettingsSection(title: String, content: @Composable ColumnScope.() -> Unit) {
+internal fun SettingsSection(title: String, content: @Composable ColumnScope.() -> Unit) {
     Surface(shape = MaterialTheme.shapes.extraLarge, tonalElevation = 1.dp) {
         Column(
             Modifier.fillMaxWidth().padding(18.dp),
@@ -545,7 +550,7 @@ private fun SettingsSection(title: String, content: @Composable ColumnScope.() -
 }
 
 @Composable
-private fun SecretField(
+internal fun SecretField(
     value: String,
     onValueChange: (String) -> Unit,
     label: String,

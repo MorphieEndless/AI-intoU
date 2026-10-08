@@ -73,7 +73,7 @@ App 中点击“测试连接”，成功后“保存并启动”，再按系统�
 cd server && python -m pip install -r requirements-server.txt httpx
 python tests/verify_server.py && python tests/verify_governor.py \
   && python tests/verify_numeric_inputs.py && python tests/verify_patterns.py \
-  && python tests/verify_static_token.py && python tests/verify_relays.py
+  && python tests/verify_relays.py
 
 # Android 构建（需 JDK 17 + Android SDK）
 cd android && ./gradlew testDebugUnitTest assembleDebug

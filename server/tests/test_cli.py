@@ -171,11 +171,23 @@ def test_doctor_passes_on_a_healthy_instance(capsys, db):
     assert "All checks passed" in out
 
 
-def test_doctor_warns_about_the_legacy_static_token(capsys, db):
+def test_doctor_warns_about_the_removed_static_token(capsys, db, monkeypatch):
+    """A leftover static token in the environment is a WARN, never a FAIL."""
     make_user(capsys, db)
+    monkeypatch.setenv("SB_STATIC_BEARER_TOKEN", "x" * 40)
     code, out, _ = run(capsys, "doctor", "--db", db)
     assert code == 0
-    assert "SB_STATIC_BEARER_TOKEN" in out  # conftest sets it: WARN, not FAIL
+    assert "[WARN] removed setting" in out
+    assert "SB_STATIC_BEARER_TOKEN" in out
+
+
+def test_doctor_reports_the_registration_mode(capsys, db, monkeypatch):
+    make_user(capsys, db)
+    code, out, _ = run(capsys, "doctor", "--db", db)
+    assert code == 0 and "invite-only" in out
+    monkeypatch.setattr(settings, "REGISTRATION_OPEN", True)
+    code, out, _ = run(capsys, "doctor", "--db", db)
+    assert code == 0 and "open to everyone" in out
 
 
 def test_doctor_fails_without_a_secret_key(capsys, db, monkeypatch):
@@ -233,3 +245,81 @@ def test_module_entry_point_runs(capsys, db):
     )
     assert result.returncode == 0, result.stderr
     assert "AI-intoU doctor" in result.stdout
+
+
+# ── accounts & invites (multi-user onboarding) ─────────────────────────────
+
+def test_list_disable_enable_users(capsys, db):
+    make_user(capsys, db)
+    make_user(capsys, db, "friend")
+    run(capsys, "create-token", "--username", "friend", "--kind", "agent",
+        "--name", "ai", "--db", db)
+
+    code, out, _ = run(capsys, "list-users", "--db", db)
+    assert code == 0 and "Accounts (2)" in out
+    lines = {line.split()[0]: line for line in out.splitlines()[1:]}
+    assert "owner" in lines["morphie"] and "user" in lines["friend"]
+    assert "agent×1" in lines["friend"]
+
+    code, out, _ = run(capsys, "disable-user", "--username", "friend", "--db", db)
+    assert code == 0 and "Disabled: friend" in out
+    _, out, _ = run(capsys, "list-users", "--db", db)
+    assert "DISABLED" in out
+    code, out, _ = run(capsys, "enable-user", "--username", "friend", "--db", db)
+    assert code == 0 and "Enabled: friend" in out
+    code, _, err = run(capsys, "disable-user", "--username", "nobody", "--db", db)
+    assert code != 0 and "nobody" in err
+
+
+def test_list_users_on_an_empty_instance(capsys, db):
+    code, out, _ = run(capsys, "list-users", "--db", db)
+    assert code == 0 and "No accounts yet" in out
+
+
+def test_set_admin_and_the_last_owner_guard(capsys, db):
+    make_user(capsys, db)
+    make_user(capsys, db, "friend")
+    code, _, err = run(capsys, "set-admin", "--username", "morphie", "--revoke", "--db", db)
+    assert code != 0 and "last active owner" in err
+
+    code, out, _ = run(capsys, "set-admin", "--username", "friend", "--db", db)
+    assert code == 0 and "an owner" in out
+    code, out, _ = run(capsys, "set-admin", "--username", "morphie", "--revoke", "--db", db)
+    assert code == 0 and "a normal user" in out
+
+
+def test_invite_commands(capsys, db):
+    make_user(capsys, db)
+    code, out, _ = run(capsys, "create-invite", "--uses", "2", "--days", "3",
+                       "--note", "qq-friend", "--username", "morphie", "--db", db)
+    assert code == 0 and "INVITE CODE" in out and "uses    : 2" in out
+    import re
+
+    printed = re.search(r"\b([0-9A-Z]{4}-[0-9A-Z]{4}-[0-9A-Z]{4})\b", out).group(1)
+
+    code, out, _ = run(capsys, "list-invites", "--db", db)
+    assert code == 0 and f"{printed[:4]}-…" in out and "qq-friend" in out
+    assert printed not in out  # only the prefix is ever shown again
+
+    code, out, _ = run(capsys, "revoke-invite", "--invite", printed[:4], "--db", db)
+    assert code == 0 and "Revoked" in out
+    code, out, _ = run(capsys, "revoke-invite", "--invite", printed[:4], "--db", db)
+    assert code == 0 and "Already revoked" in out
+    _, out, _ = run(capsys, "list-invites", "--db", db)
+    assert "revoked" in out
+
+
+def test_create_invite_validation_and_no_expiry(capsys, db):
+    code, _, err = run(capsys, "create-invite", "--uses", "0", "--db", db)
+    assert code != 0 and err
+    code, _, err = run(capsys, "create-invite", "--days", "500", "--db", db)
+    assert code != 0 and err
+    code, out, _ = run(capsys, "create-invite", "--no-expiry", "--db", db)
+    assert code == 0 and "expires : never" in out
+    code, out, _ = run(capsys, "list-invites", "--db", db)
+    assert "never" in out
+
+
+def test_list_invites_when_none(capsys, db):
+    code, out, _ = run(capsys, "list-invites", "--db", db)
+    assert code == 0 and "No invites yet" in out

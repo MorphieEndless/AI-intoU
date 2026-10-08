@@ -23,7 +23,7 @@ data class ConnectionConfig(
         normalizePath(mcpPath, "MCP Path")
         normalizePath(relayPath, "Phone Relay Path")
         when (authMode) {
-            AuthMode.TOKEN -> require(token.isNotBlank()) { "Bearer Token 不能为空" }
+            AuthMode.TOKEN -> require(token.isNotBlank()) { "手机 Token 不能为空" }
             AuthMode.ACCOUNT -> {
                 require(username.isNotBlank()) { "用户名不能为空" }
                 require(password.isNotBlank() || token.isNotBlank()) { "密码不能为空" }
@@ -41,6 +41,27 @@ data class ConnectionConfig(
       "url": "$escapedUrl",
       "headers": {
         "Authorization": "$escapedAuthorization"
+      }
+    }
+  }
+}"""
+    }
+
+    /**
+     * For clients that only launch local (stdio) servers, e.g. Claude Desktop:
+     * bridge through `mcp-remote`. The header value travels in an env var so the
+     * space after "Bearer" survives every client's argument handling.
+     */
+    fun mcpRemoteJson(tokenOverride: String = token): String {
+        val escapedUrl = escapeJson(mcpUrl)
+        val escapedAuthorization = escapeJson("Bearer ${tokenOverride.trim()}")
+        return """{
+  "mcpServers": {
+    "yingti": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "$escapedUrl", "--header", "Authorization:${'$'}{AIU_AUTH}"],
+      "env": {
+        "AIU_AUTH": "$escapedAuthorization"
       }
     }
   }
@@ -113,7 +134,12 @@ data class ConnectionConfig(
 
 data class ConnectionTestResult(
     val config: ConnectionConfig,
+    /** The phone token: relay + waveform library. Never an AI (agent) token. */
     val token: String,
     val username: String,
     val message: String,
+    /** Account mode only: the login session used for the AI 接入 / admin pages. */
+    val sessionToken: String? = null,
+    val isAdmin: Boolean = false,
+    val phoneTokenId: String? = null,
 )

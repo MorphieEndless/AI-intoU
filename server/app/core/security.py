@@ -246,9 +246,45 @@ def resolve_principal(
     credential = extract_bearer(authorization)
     if not credential:
         return None
+    return resolve_credential(credential, session=session, touch=touch)
+
+
+def resolve_credential(
+    credential: str | None,
+    *,
+    session=None,
+    touch: bool = True,
+) -> Principal | None:
+    """Same as `resolve_principal`, for a bare credential (WS `phone_auth`)."""
+    if not credential:
+        return None
+    credential = credential.strip()
     if parse_api_token(credential) is not None:
         return lookup_api_token(credential, session=session, touch=touch)
-    return verify_session_token(credential)
+    principal = verify_session_token(credential)
+    if principal is None:
+        return None
+    # A disabled or deleted account must lose its sessions immediately, not
+    # when the JWT happens to expire.
+    if session is not None:
+        return principal if _account_is_active(session, principal.user_id) else None
+    with session_scope() as own_session:
+        return principal if _account_is_active(own_session, principal.user_id) else None
+
+
+def _account_is_active(session, user_id: str) -> bool:
+    owner = session.get(User, user_id)
+    return owner is not None and bool(owner.is_active)
+
+
+def describe_credential(credential: str | None) -> str:
+    """Human-readable family of a credential, for helpful rejection messages."""
+    kind = parse_api_token(credential)
+    if kind:
+        return f"{kind} token"
+    if credential and credential.count(".") == 2:
+        return "session"
+    return "unknown"
 
 
 def require_scope(principal: Principal, scope: str) -> bool:
