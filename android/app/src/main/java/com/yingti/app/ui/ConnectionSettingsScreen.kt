@@ -69,6 +69,7 @@ fun ConnectionSettingsScreen(
     onRegister: (ConnectionConfig, String, String, Boolean) -> Unit = { _, _, _, _ -> },
     onOpenAiAccess: () -> Unit = {},
     configured: Boolean = false,
+    onboarding: (@Composable () -> Unit)? = null,
 ) {
     val context = LocalContext.current
     fun openProjectPage(url: String) {
@@ -250,6 +251,8 @@ fun ConnectionSettingsScreen(
                 .padding(horizontal = 20.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
+            onboarding?.invoke()
+
             SettingsSection("服务器") {
                 OutlinedTextField(
                     value = server,

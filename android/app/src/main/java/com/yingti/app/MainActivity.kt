@@ -79,6 +79,10 @@ class MainActivity : ComponentActivity() {
                 var splashVisible by remember { mutableStateOf(true) }
                 var isAdmin by remember { mutableStateOf(app.tokenStore.isAdmin) }
                 var aiWelcome by remember { mutableStateOf(false) }
+                var aiAccessDone by remember { mutableStateOf(UiPrefs.aiAccessDone(context)) }
+                var onboardingDismissed by remember { mutableStateOf(UiPrefs.onboardingDismissed(context)) }
+                val toyFlow = remember { AppState.state.map { it.bleStatus == "已连接" }.distinctUntilChanged() }
+                val toyConnected by toyFlow.collectAsStateWithLifecycle(initialValue = false)
                 val accountSession = remember { AccountSession(app.apiClient, app.tokenStore) }
                 val deviceLabel = remember { ApiClient.deviceLabel(Build.MODEL) }
 
@@ -289,6 +293,24 @@ class MainActivity : ComponentActivity() {
                                             screen = AppScreen.AI_ACCESS
                                         },
                                         configured = configured,
+                                        onboarding = {
+                                            val step = Onboarding.current(configured, toyConnected, aiAccessDone)
+                                            if (Onboarding.visible(step, onboardingDismissed)) {
+                                                OnboardingCard(
+                                                    step = step,
+                                                    toyConnected = toyConnected,
+                                                    onOpenToy = { screen = AppScreen.DASHBOARD },
+                                                    onOpenAiAccess = {
+                                                        aiWelcome = false
+                                                        screen = AppScreen.AI_ACCESS
+                                                    },
+                                                    onDismiss = {
+                                                        onboardingDismissed = true
+                                                        UiPrefs.setOnboardingDismissed(context, true)
+                                                    },
+                                                )
+                                            }
+                                        },
                                     )
                                 }
                             }
@@ -299,7 +321,10 @@ class MainActivity : ComponentActivity() {
                                 welcome = aiWelcome,
                                 onBack = { screen = AppScreen.SETTINGS },
                                 onCopy = ::copyToClipboard,
-                                onHasAiAccess = { UiPrefs.setAiAccessDone(context, true) },
+                                onHasAiAccess = {
+                                    aiAccessDone = true
+                                    UiPrefs.setAiAccessDone(context, true)
+                                },
                             )
                             AppScreen.ADMIN -> AdminScreen(
                                 api = accountSession,
