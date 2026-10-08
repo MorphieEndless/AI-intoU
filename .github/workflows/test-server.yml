@@ -48,3 +48,46 @@ jobs:
         run: python tests/verify_relays.py
         env:
           PYTHONPATH: .
+
+  docker-image:
+    # The pytest job runs from the source tree, where every package is on the
+    # path. That cannot catch a Dockerfile that forgets to COPY a package the
+    # code imports. This job builds the real image and boots it the way the
+    # deploy script does, then waits for the health endpoint.
+    # Credentials are generated per run and passed by variable reference, so
+    # no credential-shaped literal ever lands in the repository.
+    name: Docker image boots
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate throwaway credentials
+        run: |
+          echo "CI_KEY=$(python3 -c 'import secrets; print(secrets.token_hex(32))')" >> "$GITHUB_ENV"
+          echo "CI_TOKEN=$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')" >> "$GITHUB_ENV"
+      - name: Build image
+        run: docker build -t aiu-server:ci server
+      - name: Import smoke inside the image
+        run: |
+          docker run --rm -e "SB_SECRET_KEY=$CI_KEY" aiu-server:ci \
+            python -c "import server.app, app.domain.patterns; print('import ok')"
+      - name: Boot and wait for health
+        run: |
+          docker run -d --name aiu -p 127.0.0.1:8420:8420 \
+            -e "SB_SECRET_KEY=$CI_KEY" \
+            -e "SB_STATIC_BEARER_TOKEN=$CI_TOKEN" \
+            -e SB_REQUIRE_MCP_AUTH=true \
+            -e SB_REGISTRATION_OPEN=false \
+            -e SB_PATTERNS_DIR=/data/patterns \
+            aiu-server:ci
+          for i in $(seq 1 30); do
+            if curl --max-time 3 -fsS http://localhost:8420/health; then
+              echo; echo "container healthy"; exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::container did not become healthy"
+          docker logs aiu | tail -n 60
+          exit 1
+      - name: Container logs
+        if: always()
+        run: docker logs aiu 2>&1 | tail -n 40 || true
