@@ -5,18 +5,13 @@ on:
     branches: [main, master]
   pull_request:
   workflow_dispatch:
-    inputs:
-      publish_apk:
-        description: Publish the signed APK as a prerelease asset (bypasses the Actions artifact quota)
-        type: boolean
-        default: false
 
 jobs:
   debug:
     name: Debug APK (test + assemble)
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
       pull-requests: write
     defaults:
       run:
@@ -121,7 +116,7 @@ jobs:
     needs: debug
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
     defaults:
       run:
         working-directory: android
@@ -168,25 +163,6 @@ jobs:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-
-      - name: Publish signed release APK as a prerelease asset
-        # Actions artifact storage is quota-bound; release assets are not.
-        if: always() && github.ref_name != 'main' && github.ref_name != 'master'
-        working-directory: .
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          GH_REF: ${{ github.head_ref || github.ref_name }}
-        run: |
-          apk="android/app/build/outputs/apk/release/app-release.apk"
-          [ -f "$apk" ] || { echo "No signed release APK was produced in this run."; exit 0; }
-          version=$(grep -oP 'versionName = "\K[^"]+' android/app/build.gradle.kts || true)
-          version=${version:-unknown}
-          tag="ci-apk-${version}-$(echo "$GH_REF" | tr '/' '-')"
-          notes="CI build of the Android app from branch ${GH_REF}. Signed release test build (prerelease; formal releases are published from v* tags). No deployment configuration or data is included."
-          gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" --prerelease --target "$GITHUB_SHA" --title "CI APK ${version}" --notes "$notes"
-          gh release upload "$tag" "$apk" --clobber
-          echo "Published signed release APK to $tag"
 
       - name: APK checksum
         run: |
@@ -271,39 +247,6 @@ jobs:
       actions: read
       pull-requests: write
     steps:
-      - name: Report release assets for this branch
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          HEAD_BRANCH: ${{ github.head_ref || github.ref_name }}
-        run: |
-          gh api --paginate --slurp "repos/$GH_REPO/releases?per_page=50" > "$RUNNER_TEMP/releases.json" || echo '[]' > "$RUNNER_TEMP/releases.json"
-          python3 - <<'PYCODE'
-          import json, os, pathlib
-          root = pathlib.Path(os.environ["RUNNER_TEMP"])
-          pages = json.loads((root / "releases.json").read_text() or "[]")
-          releases = [r for page in (pages if isinstance(pages, list) else [pages]) for r in page] if pages else []
-          ci = [r for r in releases if r.get("tag_name", "").startswith("ci-apk-")]
-          lines = ["### Release assets (downloadable APKs)", ""]
-          if ci:
-              for release in sorted(ci, key=lambda r: r.get("published_at") or "", reverse=True)[:3]:
-                  lines.append("`%s`%s" % (release["tag_name"], " (draft)" if release.get("draft") else ""))
-                  assets = release.get("assets") or []
-                  if not assets:
-                      lines.append("  - no asset attached")
-                  for asset in assets:
-                      lines.append("  - `%s`, %.1f MiB, downloads: %d" % (
-                          asset["name"], asset["size"] / 1024**2, asset.get("download_count", 0)))
-              lines.append("")
-              lines.append("Download from the repository Releases page or the API asset URL.")
-          else:
-              lines.append("No `ci-apk-*` release exists yet, so no APK is downloadable from Releases.")
-          (root / "release-report.md").write_text("\n".join(lines) + "\n")
-          PYCODE
-          gh pr comment "$PR_NUMBER" --body-file "$RUNNER_TEMP/release-report.md" --edit-last --create-if-none
-
       - name: Report artifact availability for this run
         env:
           GH_TOKEN: ${{ github.token }}

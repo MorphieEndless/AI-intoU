@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       chain_build:
-        description: Dispatch a fresh APK build (published as a prerelease) after cleanup
+        description: Dispatch a fresh APK build (Actions artifacts) after cleanup
         type: boolean
         default: true
   schedule:
