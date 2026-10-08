@@ -26,6 +26,7 @@ import com.yingti.app.auth.ConnectionConfig
 import com.yingti.app.relay.RelayService
 import com.yingti.app.ui.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.map
@@ -184,11 +185,23 @@ class MainActivity : ComponentActivity() {
                                     AppState.state.map { it.serviceRunning && it.bleStatus == "已连接" }.distinctUntilChanged()
                                 }
                                 val connected by connectedFlow.collectAsStateWithLifecycle(initialValue = false)
+                                val playbackFlow = remember { AppState.state.map { it.patternPlayback }.distinctUntilChanged() }
+                                val playback by playbackFlow.collectAsStateWithLifecycle(initialValue = null)
+                                var progress by remember(playback) { mutableStateOf<Float?>(playback?.progress(System.nanoTime())) }
+                                LaunchedEffect(playback) {
+                                    while (playback != null) {
+                                        progress = playback?.progress(System.nanoTime())
+                                        delay(100)
+                                    }
+                                }
                                 PatternLibraryScreen(
                                     connectionConfig,
                                     connected,
                                     app.history,
-                                    { RelayService.playPattern(context, it) }
+                                    { RelayService.playPattern(context, it) },
+                                    onStop = { RelayService.send(context, RelayService.ACTION_STOP_ALL) },
+                                    playingId = playback?.id,
+                                    playbackProgress = progress,
                                 )
                             }
                             AppScreen.LOGS -> {

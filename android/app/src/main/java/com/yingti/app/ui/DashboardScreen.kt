@@ -1,9 +1,13 @@
 package com.yingti.app.ui
 
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -22,6 +26,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.res.stringResource
 import com.yingti.app.R
 import androidx.compose.ui.graphics.Color
@@ -345,56 +350,79 @@ private fun SuctionCard(
                     TextButton(onClick = onStopSuction) { Text("停止") }
                 }
             } else {
-                // v0.14：模式区改为 2 段 × 3 格的无缝分段控件，替掉原来 2 列 × 3 行的 FilterChip 网格。
-                // 格与格之间不留缝、只留一条细分隔线，整排看起来是一块控件；选中格填 secondaryContainer。
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                // 自由组合模式：流体双轨分段控件 (Fluid Segmented Dual-Track)
+                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                     Text("模式", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.secondary)
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         suctionModes.chunked(3).forEach { row ->
-                            val segmentShape = RoundedCornerShape(9.dp)
-                            Row(
-                                Modifier
+                            val selectedIndex = row.indexOfFirst { it.first == mode }
+                            Surface(
+                                modifier = Modifier
                                     .fillMaxWidth()
-                                    .clip(segmentShape)
-                                    .background(MaterialTheme.colorScheme.surfaceContainerLow)
-                                    .border(BorderStroke(1.dp, MaterialTheme.colorScheme.outline), segmentShape),
-                                verticalAlignment = Alignment.CenterVertically,
+                                    .height(42.dp),
+                                shape = RoundedCornerShape(21.dp),
+                                color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.5f),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
                             ) {
-                                row.forEachIndexed { index, entry ->
-                                    val (value, label) = entry
-                                    if (index > 0) {
+                                BoxWithConstraints(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(3.dp),
+                                ) {
+                                    val itemWidth = maxWidth / 3
+
+                                    if (selectedIndex != -1) {
+                                        val pillOffset by animateDpAsState(
+                                            targetValue = itemWidth * selectedIndex,
+                                            animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
+                                            label = "suction-mode-pill",
+                                        )
                                         Box(
-                                            Modifier
-                                                .width(1.dp)
-                                                .height(20.dp)
-                                                .background(MaterialTheme.colorScheme.outline),
+                                            modifier = Modifier
+                                                .offset(x = pillOffset)
+                                                .width(itemWidth)
+                                                .fillMaxHeight()
+                                                .shadow(1.dp, RoundedCornerShape(18.dp))
+                                                .background(
+                                                    color = MaterialTheme.colorScheme.surface,
+                                                    shape = RoundedCornerShape(18.dp),
+                                                ),
                                         )
                                     }
-                                    val selected = mode == value
-                                    Box(
-                                        Modifier
-                                            .weight(1f)
-                                            .height(34.dp)
-                                            .background(
-                                                if (selected) MaterialTheme.colorScheme.secondaryContainer
-                                                else Color.Transparent,
-                                            )
-                                            .clickable {
-                                                onModeChange(value)
-                                                val lvl = level.roundToInt()
-                                                if (lvl > 0) {
-                                                    onSuction(lvl / 5.0, value)
-                                                }
-                                            },
-                                        contentAlignment = Alignment.Center,
+
+                                    Row(
+                                        modifier = Modifier.fillMaxSize(),
+                                        verticalAlignment = Alignment.CenterVertically,
                                     ) {
-                                        Text(
-                                            label,
-                                            style = MaterialTheme.typography.labelLarge,
-                                            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                                            color = if (selected) MaterialTheme.colorScheme.onSecondaryContainer
-                                            else MaterialTheme.colorScheme.onSurface,
-                                        )
+                                        row.forEach { (value, label) ->
+                                            val selected = mode == value
+                                            Box(
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .fillMaxHeight()
+                                                    .clip(RoundedCornerShape(18.dp))
+                                                    .clickable(
+                                                        interactionSource = remember { MutableInteractionSource() },
+                                                        indication = null,
+                                                        onClick = {
+                                                            onModeChange(value)
+                                                            val lvl = level.roundToInt()
+                                                            if (lvl > 0) {
+                                                                onSuction(lvl / 5.0, value)
+                                                            }
+                                                        },
+                                                    ),
+                                                contentAlignment = Alignment.Center,
+                                            ) {
+                                                Text(
+                                                    text = label,
+                                                    style = MaterialTheme.typography.labelLarge,
+                                                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                                                    color = if (selected) MaterialTheme.colorScheme.primary
+                                                           else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                )
+                                            }
+                                        }
                                     }
                                 }
                             }

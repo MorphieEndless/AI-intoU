@@ -15,6 +15,7 @@ from pathlib import Path
 
 # ── Isolate storage to a temp dir BEFORE importing the package ──────────
 _tmp = tempfile.mkdtemp(prefix="sb_patterns_test_")
+os.environ["SB_DB_PATH"] = str(Path(_tmp) / "test.db")
 os.environ["SB_PATTERNS_DIR"] = str(Path(_tmp) / "patterns")
 os.environ["SB_SECRET_KEY"] = "verify-patterns-key-0123456789abcdef"
 

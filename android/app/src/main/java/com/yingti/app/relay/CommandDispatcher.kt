@@ -1,6 +1,7 @@
 package com.yingti.app.relay
 
 import com.yingti.app.AppState
+import com.yingti.app.patterns.PatternPlayback
 import com.yingti.app.history.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -85,7 +86,8 @@ class CommandDispatcher(
         }
     }
 
-    private fun launchPattern(event: String, cleanup: suspend () -> Unit, block: suspend () -> Unit): Job = scope.launch {
+    private fun launchPattern(event: String, cleanup: suspend () -> Unit, patternId: String? = null, totalMs: Long = 0, block: suspend () -> Unit): Job = scope.launch {
+        AppState.update { it.copy(patternPlayback = if (totalMs > 0) PatternPlayback(patternId, event, System.nanoTime(), totalMs) else null) }
         history.update(event, OperationStatus.RUNNING)
         var status = OperationStatus.DONE
         try { block() }
@@ -96,6 +98,9 @@ class CommandDispatcher(
         } finally {
             withContext(NonCancellable) {
                 try { cleanup() } catch (_: Exception) { status = OperationStatus.FAILED }
+            }
+            AppState.update { state ->
+                if (state.patternPlayback?.event == event) state.copy(patternPlayback = null) else state
             }
             history.update(event, status)
         }
@@ -203,7 +208,8 @@ class CommandDispatcher(
 
         cancelJobs()
         val name = cmd.optString("name", "custom")
-        activeJob = launchPattern(event, cleanup = { ble.stopAll().getOrThrow() }) {
+        activeJob = launchPattern(event, cleanup = { ble.stopAll().getOrThrow() },
+            patternId = cmd.optString("id").takeIf { it.isNotBlank() }, totalMs = steps.sumOf { it.durationMs } * repetitions) {
                 var counted = false
                 var lastVibrateLevel: Int? = null
                 var lastSuctionLevel: Int? = null

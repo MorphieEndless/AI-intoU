@@ -246,3 +246,33 @@ This tranche precedes M2b and does not claim to complete M2b–M7.
   BLE; no main-thread `runBlocking`. History persistence batches updates and
   screen subscriptions are local. These are source-level improvements, not
   measured frame-time or physical stop guarantees.
+
+### ADR 2026-10-06 — Waveform library compatibility slice
+
+- Implement the approved library prototype in the existing Compose stack;
+  do not import browser persistence or simulated playback into the app.
+- The current credential rollout is still pre-M2b. Keep the existing REST/MCP
+  principal resolver and static identity mapping unchanged. Do not provision
+  synthetic accounts. MCP exposes a read-only preference tool; no MCP tool
+  writes likes or favorites. REST has the same bearer authority as the existing
+  phone library, not a claim of human-only credentials before M2b.
+- Move live waveform persistence to SQLAlchemy tables `library_patterns` and
+  `library_imports` in the configured application database. Use composite
+  user/id keys to preserve legacy identifiers across users. The compatibility
+  tables intentionally do not require an account foreign key while static
+  principals remain supported. Keep the M1 staging `patterns` table intact.
+- Create only the new compatibility tables on startup, idempotently; also
+  describe them in Alembic for fresh/M1 installations. Do not run the full M1
+  identity migration against a live legacy account database in this release.
+  Import each legacy JSON file transactionally once; retain the original as
+  rollback input, never write new JSON business data. Malformed inputs fail
+  migration visibly rather than replacing a library with an empty result.
+- The built-in `builtin-wave` definition is virtual and immutable. Per-user
+  likes, favorites and optional note overrides persist in the same library
+  table. It participates in server filtering and pagination exactly once.
+- Metadata patches are typed, partial and exact-ID scoped. Deletion retains
+  a private tombstone for a six-second undo window. No preference, detail,
+  delete or restore request sends a hardware command.
+- Curves are illustrative templates ported from the approved prototype.
+  Preserve raw commands, zero-output rests, repeat timing and scale; offer
+  command-value inspection. No claim of calibrated hardware power or cadence.
