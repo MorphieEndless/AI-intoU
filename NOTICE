@@ -1,0 +1,21 @@
+AI-intoU（樱趣）
+Copyright 2026 MorphieEndless
+https://github.com/MorphieEndless/AI-intoU
+
+This product is licensed under the Apache License 2.0, subject to the
+Additional Terms in ADDITIONAL-TERMS.md (user-visible attribution required
+for products or services provided to third parties).
+
+本项目以 Apache License 2.0 授权，并附加 ADDITIONAL-TERMS.md 中的署名条款。
+
+The native BLE protocol implementation for SVAKOM SX589B (vibration and
+suction), the Android app, and the server modifications were developed by
+MorphieEndless.
+
+----------------------------------------------------------------------
+
+This product includes software derived from Signal Bridge (MIT License):
+  Copyright (c) 2026 Aletheia
+  https://github.com/AletheiaVox/signal_bridge_remote
+  https://github.com/AletheiaVox/signal_bridge_android
+The full MIT license notice is retained in THIRD_PARTY_LICENSES.md.

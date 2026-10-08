@@ -1,38 +1,43 @@
-# 樱媞 Bridge Android
+# 樱趣 App（Android）
 
-把 AI Agent 和蓝牙振动玩具接在一起的 Android 应用。单 APK 直连 SVAKOM SX589B，作为 phone relay 让 Agent 隔着网发指令。
+AI-intoU 的 Android 端，把 AI Agent 和蓝牙玩具连起来。一个 APK 就能直连 SVAKOM SX589B，同时作为 phone relay 接收服务端转发过来的 Agent 指令。
 
-## 这个仓库是怎么来的
+> 第一次用的话，请先看根目录的 [README](../README.md) 和 [部署教程](../docs/DEPLOY.md)。
 
-先交代一下它为什么之前是私有的。
+## 为什么做这个
 
-这本来是我"小头一动"搞出来的周末项目。写到一半我就知道它不太行，代码可以说是标准的屎山，所以一直锁在 private 里没敢见人。结果不知道怎么回事，消息在群里传开了，一堆人追着要看。行吧，既然你们这么想要，那我就开了。
+现在的社会越来越原子化，男男女女多少都有点性压抑。这事堵着不好，乱来更糟。在我看来，玩玩具是个很健康也很快乐的解压方式：自己舒服，不打扰别人，也不给社会添麻烦。
 
-## 为什么做这么个东西
+市面上已有的方案连不上我手里这款玩具，所以我自己做了一个：把 AI Agent 那套技术和蓝牙玩具接起来。你在 Agent 客户端里说一句话，手边的玩具就会响应。可以自己放松，也可以让 AI 远程陪你玩。
 
-现在的社会越来越原子化，男男女女多少都有点性压抑。这事堵着不好，乱来更糟。在我看来，玩玩具就是个很健康也很快乐的解压方式。自己舒服，不打扰别人，也不给社会添麻烦。
+## 现在能做什么
 
-这个项目就是把 AI Agent 那套技术和蓝牙协议控制的振动玩具接起来。你用 Agent 客户端给它下指令，它就能控制放在手边的玩具。自己放松也行，让 AI 远程陪你玩也行。
+- 原生 BLE 直连 SX589B，不需要 Intiface Central 中转
+- 震动 0-10 档，吮吸 0-5 档、模式 1-8，支持 custom pattern 等玩法
+- 连自托管服务器，可以用 Token 或账号登录，凭据加密存储
+- 断线时本地自动急停，支持深色模式、9 套换肤和开发者协议调试
 
 ## 先说清楚，这是内测
 
-**它还处在内测阶段，这次提前开源纯粹是大家好奇心太重，我顶不住了。**
+**它还在内测阶段，不是正式版。** 吮吸协议是拿真机反复试出来的，中间推翻过好几次结论。遇到奇怪的问题先别骂，提 issue 就行，最好附上手机型号、Android 版本和日志。
 
-它不是一个正式版，代码能不能稳定跑、release 包会不会抽风，我都不敢打包票。吮吸协议是拿真机反复试出来的，中间推翻过好几次结论。要是遇到什么怪问题，先别骂，提 issue 就行。
+## 获取安装包
 
-## 现在能做什么，以及怎么拿包
+- 发布版：[Releases](https://github.com/MorphieEndless/AI-intoU/releases)
+- 最新构建：仓库 [Actions](https://github.com/MorphieEndless/AI-intoU/actions/workflows/build-apk.yml) 页面里成功运行的 artifact
 
-- 原生 BLE 直连 SX589B，不需要 Intiface Central 中转
-- 震动 0-10 档，吮吸 0-5 档、模式 1-8（支持 custom pattern 等玩法）
-- 自托管服务器，Token 或账号登录，凭据加密存储
-- 断线自动本地急停，深色模式，开发者协议调试
+想自己编译的话，有 JDK 17 和 Android SDK 就行：
 
-CI 配好了签名，每次 push 会在 Actions 里自动产出 release APK，去仓库 Actions 页面找 artifact 下载就行。想自己动手编译，JDK 17 加 Android SDK 就能跑。
-
-详细的版本记录就不在这里写了，改了什么都看 commit。
+```bash
+./gradlew testDebugUnitTest assembleDebug
+```
 
 ## 欢迎折腾
 
-fork、提 issue、pull request、点 star 都行。人多一点，这项目说不定能被修得好一点。
+fork、提 issue、提 PR、点 star 都欢迎。用的人多了，这个项目也能被修得更好。
 
-最后说个实话。这个项目也是 AI Agent 写的，所以发不发版、issue 能不能解决、PR 什么时候合，完全取决于当天 AI 大模型的智商在不在线，以及我的账号有没有被风控。要是哪天它抽风了，请理解，我也只是个人类（大概）。
+最后说句实话：这个项目大部分代码也是 AI Agent 写的。发不发版、issue 能不能解决、PR 什么时候合，多少要看当天模型的状态，以及我的账号有没有被风控。哪天它抽风了，请多理解，我也只是个人类（大概）。
+
+## License
+
+Apache License 2.0 + 署名附加条款，详见根目录的 [LICENSE](../LICENSE)、[ADDITIONAL-TERMS.md](../ADDITIONAL-TERMS.md) 和 [NOTICE](../NOTICE)。
