@@ -43,16 +43,11 @@ class Settings(BaseSettings):
     CORS_ORIGINS: str = "*"  # comma-separated; see cors_origin_list()
 
     # ── Auth ────────────────────────────────────────────────────────────
-    # Session (login) lifetime. M2 shortens this to the "short-lived
-    # session credential" of 02-architecture.md §5.
+    # Lifetime of the session credential a person gets from password login
+    # (App account pages, CLI). Machines use API tokens instead (§5).
     SESSION_TOKEN_TTL_HOURS: int = 24
-    # Legacy knob kept until M2b removes it together with the mechanism.
-    TOKEN_EXPIRY_HOURS: int = 168
-    REGISTRATION_OPEN: bool = True
-    REQUIRE_MCP_AUTH: bool = False
-    # Deprecated static bearer token (D1: removed in M2b).
-    STATIC_BEARER_TOKEN: str = ""
-    STATIC_USER_ID: str = ""  # Compatibility binding until coordinated M2b migration
+    # Closed by default (D5): newcomers register with an invite code.
+    REGISTRATION_OPEN: bool = False
 
     # ── Rate limiting ───────────────────────────────────────────────────
     # Format: "count/period" — e.g. "5/minute", "100/hour"
@@ -99,10 +94,30 @@ def validate(target: Settings | None = None) -> None:
             "SB_SECRET_KEY is not set. Generate one with: "
             "python -c \"import secrets; print(secrets.token_hex(32))\""
         )
-    if s.STATIC_BEARER_TOKEN and len(s.STATIC_BEARER_TOKEN) < 32:
-        raise RuntimeError(
-            "SB_STATIC_BEARER_TOKEN must be at least 32 characters. Generate one with: "
-            "python -c \"import secrets; print(secrets.token_urlsafe(32))\""
-        )
     if not 0 < s.PORT < 65536:
         raise RuntimeError(f"SB_PORT must be 1-65535, got {s.PORT}")
+
+
+# Variables that used to mean something and are now ignored. Kept here so
+# `doctor` can tell an operator their .env still relies on a removed
+# mechanism (static bearer token, sole-phone fallback, legacy JWT lifetime).
+REMOVED_SETTINGS: tuple[str, ...] = (
+    "SB_STATIC_BEARER_TOKEN",
+    "SB_STATIC_USER_ID",
+    "SB_REQUIRE_MCP_AUTH",
+    "SB_TOKEN_EXPIRY_HOURS",
+)
+
+
+def removed_settings_present(env_file: str | Path = ".env") -> list[str]:
+    """Removed variables still set in the environment or the `.env` file."""
+    import os
+
+    found = {name for name in REMOVED_SETTINGS if os.environ.get(name)}
+    path = Path(env_file)
+    if path.is_file():
+        for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            key, _, value = line.strip().partition("=")
+            if key in REMOVED_SETTINGS and value.strip():
+                found.add(key)
+    return sorted(found)

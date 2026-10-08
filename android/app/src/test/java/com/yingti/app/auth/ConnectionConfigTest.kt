@@ -66,4 +66,21 @@ class ConnectionConfigTest {
         val json = ConnectionConfig(serverBaseUrl = "example.com", token = "a\"b\\c").rikkaHubJson()
         assertTrue(json.contains("Bearer a\\\"b\\\\c"))
     }
+
+    @Test fun phoneTokenFormatIsCheckedWithAHelpfulReason() {
+        assertEquals(null, CredentialFormat.phoneTokenProblem(" aiu_phone_" + "a".repeat(32) + " "))
+        assertTrue(CredentialFormat.phoneTokenProblem("aiu_agent_" + "a".repeat(32))!!.contains("AI"))
+        assertTrue(CredentialFormat.phoneTokenProblem("legacy-static-token-value")!!.contains("已停用"))
+        assertTrue(CredentialFormat.phoneTokenProblem("   ")!!.contains("不能为空"))
+    }
+
+    @Test fun tokenNamesAreTrimmedToTheServerLimit() {
+        assertEquals("RikkaHub", CredentialFormat.tokenName("  RikkaHub "))
+        assertEquals(64, CredentialFormat.tokenName("名".repeat(80)).length)
+    }
+
+    @Test fun shortDateKeepsTheDayOnly() {
+        assertEquals("2026-10-08", shortDate("2026-10-08T01:02:03.456+00:00"))
+        assertEquals("", shortDate(null))
+    }
 }

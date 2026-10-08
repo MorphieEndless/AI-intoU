@@ -9,9 +9,11 @@ from .device import Device
 from .pattern import Pattern
 from .safety_config import SafetyConfig
 from .library import LibraryPattern, LibraryImport
+from .invite import Invite
 
 __all__ = [
     "Base",
+    "Invite",
     "LibraryPattern",
     "LibraryImport",
     "User",

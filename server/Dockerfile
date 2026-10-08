@@ -21,6 +21,7 @@ COPY scripts/ ./scripts/
 RUN mkdir -p /data
 
 ENV SB_DB_PATH=/data/signal_bridge.db
+ENV SB_PATTERNS_DIR=/data/patterns
 ENV SB_HOST=0.0.0.0
 ENV SB_PORT=8420
 

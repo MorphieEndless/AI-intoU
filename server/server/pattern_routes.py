@@ -6,20 +6,21 @@ from fastapi.responses import JSONResponse
 from app.schemas.patterns import (
     BUILTIN_ID, MetadataPatch, PatternPage, PatternSummary, StoredPattern, DeleteResult,
 )
-from .auth import extract_token, verify_token, rate_limiter
+from app.api.deps import require
+from .auth import rate_limiter
 from .pattern_store import pattern_store
 
 router = APIRouter(prefix="/patterns", tags=["patterns"])
 
 
 async def user_id(request: Request) -> str:
-    token = extract_token(request.headers.get("authorization", ""))
-    user = verify_token(token) if token else None
-    if not user:
-        raise HTTPException(401, "Valid Bearer token required")
-    if not await rate_limiter.check(f"library:{user['user_id']}", "120/minute"):
+    # The App manages its library with its phone token (or a session).
+    # AI clients use the MCP tools; they get no REST write path, so the
+    # human-only preference flags stay human-only.
+    principal = await require(request, kinds=("phone",), allow_session=True)
+    if not await rate_limiter.check(f"library:{principal.user_id}", "120/minute"):
         raise HTTPException(429, "Too many library requests")
-    return user["user_id"]
+    return principal.user_id
 
 
 def response(model):

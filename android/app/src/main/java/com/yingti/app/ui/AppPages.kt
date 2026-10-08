@@ -20,7 +20,8 @@ import com.yingti.app.AppScreen
 
 @Composable
 fun AppNavigation(screen: AppScreen, onScreen: (AppScreen) -> Unit, content: @Composable () -> Unit) {
-    BackHandler(screen != AppScreen.DASHBOARD) { onScreen(AppScreen.DASHBOARD) }
+    // Sub-pages of 设置 go back to 设置; every other tab goes back to 玩具.
+    BackHandler(screen != AppScreen.DASHBOARD) { onScreen(screen.parentTab.takeIf { it != screen } ?: AppScreen.DASHBOARD) }
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         bottomBar = {
@@ -33,7 +34,7 @@ fun AppNavigation(screen: AppScreen, onScreen: (AppScreen) -> Unit, content: @Co
                 )
                 tabs.forEach { (target, label, icon) ->
                     NavigationBarItem(
-                        selected = screen == target,
+                        selected = screen.parentTab == target,
                         onClick = { onScreen(target) },
                         icon = { Icon(icon, null) },
                         label = { Text(label) },
@@ -64,11 +65,22 @@ fun PatternLibraryPlaceholder(onSettings: () -> Unit) {
 }
 
 @Composable
-fun SettingsPages(devMode: Boolean, configured: Boolean, lastMessage: String, onRaw: (String) -> Unit, onLogout: () -> Unit, settings: @Composable () -> Unit) {
+fun SettingsPages(
+    devMode: Boolean,
+    configured: Boolean,
+    lastMessage: String,
+    onRaw: (String) -> Unit,
+    onLogout: () -> Unit,
+    showAdmin: Boolean = false,
+    onAdmin: () -> Unit = {},
+    settings: @Composable () -> Unit,
+) {
     var debug by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(devMode) { if (!devMode) debug = false }
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+            // 管理页：仅开发者模式 + owner 账号可见。
+            if (devMode && showAdmin && !debug) TextButton(onClick = onAdmin) { Text("管理") }
             if (devMode) TextButton(onClick = { debug = !debug }) { Text(if (debug) "返回设置" else "协议调试") }
             if (configured) TextButton(onClick = onLogout) { Text("退出连接") }
         }

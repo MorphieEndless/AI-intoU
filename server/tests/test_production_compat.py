@@ -2,22 +2,9 @@
 import asyncio
 
 import pytest
-from app.config import Settings
-from server import auth, config, mcp_tools
+from server import mcp_tools
 from server.models import PatternCommand
 from server.pattern_store import PatternStore
-
-
-def test_static_token_account_binding(monkeypatch):
-    monkeypatch.setattr(config, "STATIC_USER_ID", "existing-account")
-    assert auth.verify_token(config.STATIC_BEARER_TOKEN)["user_id"] == "existing-account"
-    monkeypatch.setattr(config, "STATIC_USER_ID", "")
-    assert auth.verify_token(config.STATIC_BEARER_TOKEN)["user_id"] == "static-bearer-user"
-
-
-def test_binding_uses_central_settings(monkeypatch):
-    monkeypatch.setenv("SB_STATIC_USER_ID", "existing-account")
-    assert Settings(_env_file=None).STATIC_USER_ID == "existing-account"
 
 
 def test_repeat_60_and_short_patterns_remain_valid(tmp_path):

@@ -32,7 +32,7 @@ def test_defaults_match_the_pre_m2a_values(clean_env):
     assert default.PORT == 8420
     assert default.SECRET_KEY == ""
     assert default.SESSION_TOKEN_TTL_HOURS == 24
-    assert default.REGISTRATION_OPEN is True  # flipped to False in M2b (D5)
+    assert default.REGISTRATION_OPEN is False  # invite-only since M2b (D5)
     assert default.RATE_LIMIT_AUTH == "5/minute"
     assert default.RATE_LIMIT_COMMANDS == "120/minute"
     assert default.RATE_LIMIT_GLOBAL == "300/minute"
@@ -100,9 +100,23 @@ def test_validate_reports_missing_secret_key():
         validate(Settings(_env_file=None, SECRET_KEY=""))
 
 
-def test_validate_reports_short_static_token():
-    with pytest.raises(RuntimeError, match="at least 32 characters"):
-        validate(Settings(_env_file=None, SECRET_KEY="x" * 40, STATIC_BEARER_TOKEN="too-short"))
+def test_removed_variables_are_ignored_not_fatal(clean_env, tmp_path):
+    """An old .env that still carries the static-token settings must boot."""
+    from app.config import REMOVED_SETTINGS, removed_settings_present
+
+    clean_env.setenv("SB_SECRET_KEY", "x" * 40)
+    clean_env.setenv("SB_STATIC_BEARER_TOKEN", "too-short")
+    clean_env.setenv("SB_REQUIRE_MCP_AUTH", "true")
+    loaded = fresh()
+    validate(loaded)
+    for name in ("STATIC_BEARER_TOKEN", "STATIC_USER_ID", "REQUIRE_MCP_AUTH", "TOKEN_EXPIRY_HOURS"):
+        assert not hasattr(loaded, name)
+
+    env_file = tmp_path / ".env"
+    env_file.write_text("SB_TOKEN_EXPIRY_HOURS=720\nSB_STATIC_USER_ID=\n# SB_STATIC_USER_ID=x\n")
+    found = removed_settings_present(env_file)
+    assert found == ["SB_REQUIRE_MCP_AUTH", "SB_STATIC_BEARER_TOKEN", "SB_TOKEN_EXPIRY_HOURS"]
+    assert set(found) <= set(REMOVED_SETTINGS)
 
 
 def test_validate_reports_bad_port():

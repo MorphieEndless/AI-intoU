@@ -47,18 +47,18 @@ cd AI-intoU
 bash deploy/setup-server.sh
 ```
 
-首次运行时，脚本会生成密钥和 Bearer Token，强制开启 MCP 认证，并把数据存进 Docker 持久化卷。终端打印出来的 Token 请私下保存，App 和 MCP 共用这一个。脚本不会覆盖已有的 `.env`；旧部署请先备份，再按教程迁移数据。
+首次运行时，脚本会生成密钥、创建 owner 账号（随机密码只打印一次），并签发首个手机 token 和 AI token，数据存进 Docker 持久化卷。脚本不会覆盖已有的 `.env`；旧部署请先备份，再按 [多用户与升级指南](docs/MULTI-USER.md) 迁移。
 
 **服务默认只监听 `127.0.0.1:8420`。要让手机从公网接入，需要先配置 HTTPS/WSS 反向代理。** 完整步骤见 [部署教程](docs/DEPLOY.md)，包括宿主机 Caddy 配置、可信内网/VPN 下的 IP 直连、APK 下载和常见故障。明文 HTTP 只建议在可信内网或 VPN 里使用。
 
 | 配置位置 | HTTPS 示例 |
 | --- | --- |
 | App 服务器地址 | `https://example.com` |
-| App 认证方式 | Bearer Token，只填 Token 本身 |
+| App 认证方式 | 账号登录（推荐），或手机 token `aiu_phone_…` |
 | MCP URL | `https://example.com/mcp` |
-| MCP 请求头 | `Authorization: Bearer YOUR_SERVER_TOKEN` |
+| MCP 请求头 | `Authorization: Bearer aiu_agent_…`（App →「AI 接入」生成） |
 
-把示例里的域名和 Token 换成你自己的。APK 可以从 [Releases](https://github.com/MorphieEndless/AI-intoU/releases) 获取；也可以在 [Actions](https://github.com/MorphieEndless/AI-intoU/actions/workflows/build-apk.yml) 里找一次成功的 Build APK 运行，下载 artifact 后解压安装。
+把示例里的域名换成你自己的。想给朋友用：在 App 管理页或 CLI 生成邀请码，对方在 App 里用邀请码注册，详见 [MULTI-USER.md](docs/MULTI-USER.md)。APK 请从 [Releases](https://github.com/MorphieEndless/AI-intoU/releases) 下载。
 
 在 App 里先点“测试连接”，成功后点“保存并启动”，再按系统提示授予蓝牙权限，然后扫描设备。验证网络时，看 Relay 状态和 MCP 工具列表就够了，不用发送设备输出命令。
 
@@ -68,7 +68,7 @@ bash deploy/setup-server.sh
 - 命令类型：direct / pulse / wave / escalate / custom pattern，全部支持
 - 服务端带 safety governor（按强度和时长估算负荷并限流，不监测硬件温度），另有断线急停和心跳保活
 - App 用 EncryptedSharedPreferences 记住密码，提供 9 套换肤、深色模式和开发者 HEX 调试
-- 两种认证模式：静态 Bearer Token（单用户自部署）和账号/JWT/OAuth（多用户）
+- 多用户：邀请码注册、账号隔离；手机 token / AI token 分开签发，可命名、可撤销；owner 有管理页和 CLI
 - CI 自动构建 APK，配好 secrets 后自动签名
 
 ## ⚠️ 安全须知
@@ -86,7 +86,7 @@ bash deploy/setup-server.sh
 cd server && python -m pip install -r requirements-server.txt httpx
 python tests/verify_server.py && python tests/verify_governor.py \
   && python tests/verify_numeric_inputs.py && python tests/verify_patterns.py \
-  && python tests/verify_static_token.py && python tests/verify_relays.py
+  && python tests/verify_relays.py
 
 # Android 构建（需 JDK 17 + Android SDK）
 cd android && ./gradlew testDebugUnitTest assembleDebug

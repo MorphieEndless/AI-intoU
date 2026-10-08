@@ -20,5 +20,3 @@ jobs:
         run: python -m compileall -q server tests
       - name: Server verification
         run: python tests/verify_server.py
-      - name: Static Bearer verification
-        run: python tests/verify_static_token.py
