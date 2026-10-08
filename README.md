@@ -113,6 +113,6 @@ cd android && ./gradlew testDebugUnitTest assembleDebug
 
 ## 致谢
 
-- **[Signal Bridge](https://github.com/AletheiaVox/signal_bridge_remote)**（MIT），作者 Aletheia。本项目的服务端架构、relay 设计和 safety governor 都源自 Signal Bridge Remote 与 [Signal Bridge Android](https://github.com/AletheiaVox/signal_bridge_android)。上游许可声明见 [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md)。
+- **[Signal Bridge Remote](https://github.com/AletheiaVox/signal_bridge_remote)**（MIT），作者 Aletheia。本项目的服务端源自这里，包括 relay 架构、safety governor 和 OAuth 认证。服务端与 App 之间的 relay 消息协议也沿用了它的约定，App 本身则是独立编写的。上游许可声明见 [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md)。
 - **[buttplug.io](https://buttplug.io)**：上游项目的基础，这个领域的开源先驱。它的 [伦理框架](https://buttplug.io/docs/dev-guide/intro/buttplug-ethics) 推荐每位使用者读一读。
 - **[Model Context Protocol](https://modelcontextprotocol.io)**：让 AI 能直接调用工具的协议。
