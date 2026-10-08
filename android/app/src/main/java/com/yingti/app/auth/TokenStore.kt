@@ -4,7 +4,7 @@ import android.content.Context
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 
-class TokenStore(context: Context) {
+class TokenStore(context: Context) : SessionStorage {
     private val prefs = EncryptedSharedPreferences.create(
         context,
         "yingti_secure",
@@ -13,21 +13,37 @@ class TokenStore(context: Context) {
         EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
     )
 
+    /** The phone token (`aiu_phone_…`): relay and waveform library. */
     var token: String?
         get() = prefs.getString("token", null)
         set(value) = prefs.edit().apply { if (value == null) remove("token") else putString("token", value) }.apply()
 
-    var username: String
+    /** Login session (account mode): AI 接入 and admin pages. Expires after 24 h. */
+    override var sessionToken: String?
+        get() = prefs.getString("session_token", null)
+        set(value) = prefs.edit().apply { if (value.isNullOrBlank()) remove("session_token") else putString("session_token", value) }.apply()
+
+    override var isAdmin: Boolean
+        get() = prefs.getBoolean("is_admin", false)
+        set(value) = prefs.edit().putBoolean("is_admin", value).apply()
+
+    /** Server id of this phone's own token, so the AI 接入 page can tell it apart. */
+    var phoneTokenId: String?
+        get() = prefs.getString("phone_token_id", null)
+        set(value) = prefs.edit().apply { if (value.isNullOrBlank()) remove("phone_token_id") else putString("phone_token_id", value) }.apply()
+
+    override var username: String
         get() = prefs.getString("username", "") ?: ""
         set(value) = prefs.edit().putString("username", value).apply()
 
-    var serverBaseUrl: String
+    override var serverBaseUrl: String
         get() = prefs.getString("server", "") ?: ""
         set(value) = prefs.edit().putString("server", value.takeIf { it.isBlank() } ?: normalizeBaseUrl(value)).apply()
 
-    var authMode: AuthMode
-        get() = runCatching { AuthMode.valueOf(prefs.getString("auth_mode", AuthMode.TOKEN.name)!!) }
-            .getOrDefault(AuthMode.TOKEN)
+    /** New installs default to account login; existing installs keep what they saved. */
+    override var authMode: AuthMode
+        get() = runCatching { AuthMode.valueOf(prefs.getString("auth_mode", AuthMode.ACCOUNT.name)!!) }
+            .getOrDefault(AuthMode.ACCOUNT)
         set(value) = prefs.edit().putString("auth_mode", value.name).apply()
 
     var mcpPath: String
@@ -39,7 +55,7 @@ class TokenStore(context: Context) {
         set(value) = prefs.edit().putString("relay_path", ConnectionConfig.normalizePath(value, "Phone Relay Path")).apply()
 
     /** 记住密码（可选）：仅账号模式使用，加密存储；赋空值即清除。 */
-    var savedPassword: String
+    override var savedPassword: String
         get() = prefs.getString("saved_password", "") ?: ""
         set(value) = prefs.edit().apply { if (value.isBlank()) remove("saved_password") else putString("saved_password", value) }.apply()
 
@@ -65,10 +81,17 @@ class TokenStore(context: Context) {
         relayPath = result.config.relayPath
         username = result.username
         token = result.token
+        sessionToken = result.sessionToken
+        isAdmin = result.isAdmin
+        phoneTokenId = result.phoneTokenId
     }
 
+    /** 退出连接: forget every credential, keep the server address and username. */
     fun clearSession() {
         token = null
+        sessionToken = null
+        phoneTokenId = null
+        isAdmin = false
     }
 
     fun clearAll() {

@@ -276,3 +276,27 @@ This tranche precedes M2b and does not claim to complete M2b–M7.
 - Curves are illustrative templates ported from the approved prototype.
   Preserve raw commands, zero-output rests, repeat timing and scale; offer
   command-value inspection. No claim of calibrated hardware power or cadence.
+
+### ADR 2026-10-08 — M2b: invite onboarding, token split, static token removal
+
+- M2b lands. Credentials are split by purpose: session JWT (24 h, App account
+  pages only), phone token (`aiu_phone_`, relay + REST waveform library) and
+  agent token (`aiu_agent_`, MCP only). Each endpoint accepts only its kinds
+  and returns a specific hint when a wrong kind is presented.
+- Removed: static bearer token, OAuth (claude.ai connector), the sole-phone
+  MCP fallback and `SB_REQUIRE_MCP_AUTH`. All MCP requests carry a bearer.
+- New `invites` table (scope extension over 01-product: owners needed a way
+  to onboard small-circle users without SSH). Codes are 12-char Crockford
+  base32, stored as sha256 + 4-char prefix; redemption decrements uses with a
+  conditional UPDATE in the same transaction as account creation. Invitees
+  are never owners.
+- New `app/api` package (accounts, tokens, admin). Session validation checks
+  the account is still active on every request, so disabling is immediate.
+- Legacy database migration runs automatically at startup and is atomic:
+  work on a backup copy, leave a `.pre-multiuser-*.bak`, write back in one
+  step. Deployments must set `SB_DB_PATH` explicitly when the legacy file is
+  not at the new default location.
+- Agent tokens cannot use the REST waveform library; AI uses MCP tools.
+- App 0.17.0: invite registration, AI access page, owner admin page (dev mode),
+  three-step onboarding card.
+

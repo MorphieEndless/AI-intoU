@@ -38,6 +38,9 @@ class PhoneSession:
     connected_at: float = field(default_factory=time.time)
     last_heartbeat: float = field(default_factory=time.time)
     devices: list[dict[str, Any]] = field(default_factory=list)
+    # The phone token this connection authenticated with, so revoking that
+    # token (or disabling the account) can end exactly this connection.
+    token_id: str | None = None
 
     # Pending command acknowledgments: request_id → Future
     _pending: dict[str, asyncio.Future] = field(default_factory=dict)
@@ -159,13 +162,38 @@ class SessionRegistry:
         async with self._lock:
             return dict(self._sessions)
 
-    async def get_sole_user_id(self) -> Optional[str]:
-        """If exactly one phone session is active, return its user_id.
-        Used for authless MCP access (e.g. claude.ai connector)."""
+    async def disconnect(
+        self,
+        user_id: str,
+        *,
+        token_id: str | None = None,
+        code: int = 4001,
+        reason: str = "Credential revoked",
+    ) -> bool:
+        """Stop the toy, then close the user's phone connection.
+
+        With `token_id`, only a connection that authenticated with that token
+        is affected. The socket's own handler performs the unregister when the
+        close lands, exactly as for any other disconnect.
+        """
+        session = await self.get_session(user_id)
+        if session is None or (token_id is not None and session.token_id != token_id):
+            return False
+        try:
+            await asyncio.wait_for(session.websocket.send(json.dumps(
+                {"type": "stop", "device": "all", "emergency": True}
+            )), timeout=2.0)
+        except Exception:
+            log.debug("Could not send stop before disconnect", exc_info=True)
+        try:
+            await asyncio.wait_for(session.websocket.close(code, reason), timeout=2.0)
+        except Exception:
+            log.debug("Could not close session on disconnect", exc_info=True)
+        return True
+
+    async def online_user_ids(self) -> set[str]:
         async with self._lock:
-            if len(self._sessions) == 1:
-                return next(iter(self._sessions))
-            return None
+            return set(self._sessions)
 
     @property
     def active_count(self) -> int:

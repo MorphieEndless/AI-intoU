@@ -29,12 +29,8 @@ SECRET_KEY = settings.SECRET_KEY
 CORS_ORIGINS = settings.cors_origin_list()
 
 # ── Auth ────────────────────────────────────────────────────────────────
-TOKEN_EXPIRY_HOURS = settings.TOKEN_EXPIRY_HOURS
 SESSION_TOKEN_TTL_HOURS = settings.SESSION_TOKEN_TTL_HOURS
 REGISTRATION_OPEN = settings.REGISTRATION_OPEN
-REQUIRE_MCP_AUTH = settings.REQUIRE_MCP_AUTH
-STATIC_BEARER_TOKEN = settings.STATIC_BEARER_TOKEN
-STATIC_USER_ID = settings.STATIC_USER_ID
 
 # ── Rate limiting ───────────────────────────────────────────────────────
 RATE_LIMIT_AUTH = settings.RATE_LIMIT_AUTH

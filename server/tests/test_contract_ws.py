@@ -4,25 +4,25 @@ Covers the auth handshake, the post-auth scan request, heartbeat
 piggyback, and the device_list branch — the exact code path that the
 K1 syntax error lived in.
 """
-import os
-
 import pytest
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
 from server.app import app
 
-STATIC = os.environ["SB_STATIC_BEARER_TOKEN"]
+PHONE: dict = {}
 
 
 @pytest.fixture()
-def client():
+def client(make_account, mint):
     with TestClient(app) as c:
+        account = make_account()
+        PHONE.update(account, token=mint(account["user_id"], "phone", "contract-phone"))
         yield c
 
 
-def _auth(ws, token=STATIC):
-    ws.send_json({"type": "phone_auth", "token": token})
+def _auth(ws, token=None):
+    ws.send_json({"type": "phone_auth", "token": PHONE["token"] if token is None else token})
     return ws.receive_json()
 
 
@@ -30,7 +30,7 @@ def test_phone_auth_ok_and_scan_requested(client):
     with client.websocket_connect("/ws/phone") as ws:
         msg = _auth(ws)
         assert msg["type"] == "auth_ok"
-        assert msg["user_id"] == "static-bearer-user"
+        assert msg["user_id"] == PHONE["user_id"]
         # server proactively requests a device scan after auth
         assert ws.receive_json()["type"] == "scan"
         # dead man's switch heartbeat arrives with governor state piggybacked

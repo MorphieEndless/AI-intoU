@@ -1,0 +1,10 @@
+# Keep secrets, local databases and caches out of the build context.
+.env
+*.db
+*.db-*
+*.bak
+__pycache__/
+*.pyc
+.pytest_cache/
+tests/
+phone/

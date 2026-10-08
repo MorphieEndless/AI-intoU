@@ -13,6 +13,8 @@ object UiPrefs {
     private const val KEY_DARK = "dark_theme"
     private const val KEY_PALETTE = "palette"
     private const val KEY_DEV_MODE = "dev_mode"
+    private const val KEY_AI_ACCESS_DONE = "onboarding_ai_access_done"
+    private const val KEY_ONBOARDING_DISMISSED = "onboarding_dismissed"
 
     private fun prefs(context: Context) =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -37,5 +39,21 @@ object UiPrefs {
 
     fun setDevMode(context: Context, value: Boolean) {
         prefs(context).edit().putBoolean(KEY_DEV_MODE, value).apply()
+    }
+
+    /** 首次使用引导第 3 步：已经有过至少一个 AI 接入（本机创建或列表里查到）。 */
+    fun aiAccessDone(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_AI_ACCESS_DONE, false)
+
+    fun setAiAccessDone(context: Context, value: Boolean) {
+        prefs(context).edit().putBoolean(KEY_AI_ACCESS_DONE, value).apply()
+    }
+
+    /** 用户手动收起了首次使用引导卡片。 */
+    fun onboardingDismissed(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_ONBOARDING_DISMISSED, false)
+
+    fun setOnboardingDismissed(context: Context, value: Boolean) {
+        prefs(context).edit().putBoolean(KEY_ONBOARDING_DISMISSED, value).apply()
     }
 }

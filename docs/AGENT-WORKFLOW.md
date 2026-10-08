@@ -60,7 +60,6 @@ PYTHONPATH=. python -m pytest tests/ -v
 
 # 2) 既有回归套件（独立脚本，不被 pytest 收集，必须单独跑）
 python tests/verify_server.py
-python tests/verify_static_token.py
 python tests/verify_governor.py
 python tests/verify_numeric_inputs.py
 PYTHONPATH=. python tests/verify_patterns.py
