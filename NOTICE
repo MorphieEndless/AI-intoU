@@ -8,14 +8,15 @@ for products or services provided to third parties).
 
 本项目以 Apache License 2.0 授权，并附加 ADDITIONAL-TERMS.md 中的署名条款。
 
-The native BLE protocol implementation for SVAKOM SX589B (vibration and
-suction), the Android app, and the server modifications were developed by
+The Android app (android/), including the native BLE protocol
+implementation for SVAKOM SX589B (vibration and suction), is an original
+work by MorphieEndless. The server modifications were also developed by
 MorphieEndless.
 
 ----------------------------------------------------------------------
 
-This product includes software derived from Signal Bridge (MIT License):
+The server (server/) includes software derived from Signal Bridge Remote
+(MIT License):
   Copyright (c) 2026 Aletheia
   https://github.com/AletheiaVox/signal_bridge_remote
-  https://github.com/AletheiaVox/signal_bridge_android
 The full MIT license notice is retained in THIRD_PARTY_LICENSES.md.

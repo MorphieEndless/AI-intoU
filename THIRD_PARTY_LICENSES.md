@@ -1,11 +1,12 @@
 # Third-Party Licenses
 
-## Signal Bridge
+## Signal Bridge Remote
 
-AI-intoU 的服务端（`server/`）源自 Signal Bridge Remote，Android 端参考了 Signal Bridge Android 的设计。
+AI-intoU 的服务端（`server/`）源自 Signal Bridge Remote。Android App（`android/`）为本项目独立编写，不含 Signal Bridge 的代码。
 
 - https://github.com/AletheiaVox/signal_bridge_remote
-- https://github.com/AletheiaVox/signal_bridge_android
+
+Signal Bridge Remote 在其 README 中声明采用 MIT License，版权声明与 Signal Bridge 系列仓库一致：
 
 ```
 MIT License
