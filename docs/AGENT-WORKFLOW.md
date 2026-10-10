@@ -4,18 +4,18 @@
 > （命令、流程、已知坑、交接模板）。两者冲突时以 `AGENTS.md` 为准。
 > 面向所有 AI 编码代理与人类协作者。
 >
-> 最后更新：2026-10-08（仓库准备公开；见 §0 当前交接）
+> 最后更新：2026-10-10（M0–M7 由 `ROADMAP.md` 取代；见 §0 当前交接）
 
 ---
 
-## 0. 当前交接（2026-10-08）
+## 0. 当前交接（2026-10-10）
 
-> 每次交接覆盖本节。已完成的事项移到 §2 进度表，不在这里堆积。
+> 每次交接覆盖本节。进度只记在 `ROADMAP.md`，不在这里堆积。
 
 ### 0.1 仓库状态
 
-- `main` @ PR #9 合并（波形库：喜欢 / 收藏、备注、预览图、撤销删除）。App 版本 **0.16.0 / versionCode 22**。
-- 仓库**即将从私有转为公开**。许可证已定：**Apache-2.0 + 署名附加条款**
+- `main` @ PR #15 合并（多用户 v0.17.0：邀请码、三类凭证分离、App 内管理页）。App 版本 **0.17.0 / versionCode 23**。生产与 main 一致。
+- 仓库已公开。许可证已定：**Apache-2.0 + 署名附加条款**
   （`LICENSE` / `ADDITIONAL-TERMS.md` / `NOTICE` / `THIRD_PARTY_LICENSES.md`）。
 - 署名边界：`server/` 源自 Signal Bridge Remote（MIT，保留其声明）；
   `android/` 为本项目**独立编写**，不含 Signal Bridge Android 代码，仅沿用 relay 消息协议的字段约定。
@@ -24,12 +24,7 @@
 
 ### 0.2 进行中
 
-| 项 | 状态 | 说明 |
-| --- | --- | --- |
-| **PR #11** Docker 镜像补齐 `app/` | 🟡 待 CI 绿后合并 | 见 §6「Dockerfile 漏拷贝」。替代 #10（#10 因 CI 占位值触发泄露门禁而重建） |
-| **v0.16.0 Release** | ⬜ #11 合并后 | 由项目所有者在网页上手动建：tag `v0.16.0`、target `main`、附 main 构建的签名 `app-release.apk`、**不**勾 Pre-release |
-| 清理 `ci-apk-*` 预发布 | ⬜ | 4 个旧预发布全部来自已关闭 / 已合并分支，删除，避免公开后被误下载 |
-| 仓库转公开 | ⬜ 最后一步 | 转公开前在 Actions 手动触发一次 **Secret scan**（见 §6「gitleaks 只扫增量」） |
+v0.18.0 的全部待办见 [`docs/ROADMAP.md`](ROADMAP.md)。第一项就是下面的 §0.3。
 
 ### 0.3 下一个任务：重做吮吸滑条修复（原 PR #8）
 
@@ -57,7 +52,7 @@
   `commandFailureClearsPendingTap`、`missingAcknowledgementEventuallyRestoresAppliedState`、
   `idleModeSelectionSurvivesUnrelatedBridgeUpdate`），**确认其中至少前 4 个在旧实现上失败**（复现），再写修复。
 - 修复后：完整 Android 单元测试 + 既有 5 项滑条点击回归 + 上述 9 项全绿；Debug APK 构建成功。
-- 版本号：**0.16.1 / versionCode 23**。
+- 版本号：随 v0.18.0 一起发布（见 `ROADMAP.md`），不单独发 patch 版本。
 - 只改 Android UI、测试、版本号。不碰服务端、协议、部署配置。
 - 真机复验由项目所有者完成，PR 描述里写明"未操作真实设备"。
 
@@ -70,9 +65,10 @@
 
 1. `AGENTS.md` —— 红线 R1–R4。**违反即视为错误交付**，没有例外。
 2. 本文 §0 当前交接 + §6 已知坑。
-3. `docs/redesign/02-architecture.md` —— 设计宪法。§1 设计铁律是硬约束，§4 数据模型，§9 里程碑。
+3. `docs/redesign/02-architecture.md` —— 设计宪法。§1 设计铁律是硬约束，§4 数据模型。
+   进度与待办在 `docs/ROADMAP.md`。
 4. `docs/redesign/01-product.md` —— 已锁定决策 D1–D6。不要重新论证已经定过的事。
-5. `docs/redesign/00-current-state.md` —— 重构前现状与 K1–K9 问题清单（理解"为什么这么设计"）。
+5. `docs/redesign/00-current-state.md` —— 重构前的历史快照（已过时，仅用于理解"为什么这么设计"）。
 6. 涉及波形库时：`docs/WAVEFORM-LIBRARY.md`。
 
 **文档先行**：任何与 `02-architecture.md` 冲突的实现，先改文档（写明理由）再改代码；
@@ -80,20 +76,9 @@
 
 ---
 
-## 2. 里程碑进度
+## 2. 进度
 
-| 里程碑 | 状态 |
-| --- | --- |
-| 设计文档（现状 / 产品 / 架构） | ✅ 已合并 |
-| M0 — 修复 K1 + CI 冒烟门禁 + 行为契约测试 | ✅ 已合并 |
-| M1 — SQLAlchemy 数据层 + Alembic + 旧数据迁移 | ✅ 已合并 |
-| M2a — 身份/令牌内核（`app/config` + `core/security` + `domain/identity` + CLI） | ✅ 已在 main（零行为变更） |
-| 波形库（ORM 存储、个人标记、只读 MCP 偏好工具）— PR #9 | ✅ 已合并，2026-10-08 |
-| 公开准备：许可证、README 重写、Docker 镜像修复 | 🟡 见 §0.2 |
-| **M2b — 接线与删除**（静态 token / sole-phone fallback / OAuth 下线 + 安卓领 phone token） | ⬜ 未开始。**需与 App 协同发布**，不要单独上线服务端侧 |
-| M3–M7 | 见 `02-architecture.md` §9 |
-
-每个里程碑独立可交付、可回滚。**不要跳过里程碑顺序**：M3+ 依赖 M2 的认证解析器。
+进度与待办只在 [`docs/ROADMAP.md`](ROADMAP.md) 维护，这里不再重复。
 
 ---
 
@@ -169,14 +154,14 @@ git hash-object <file> ...     # 推送前
 
 ### 构建与部署
 
-- **Dockerfile 漏拷贝（2026-10-08 发现，PR #11 修复）**：`server/Dockerfile` 从上游继承后长期只
+- **Dockerfile 漏拷贝（2026-10-08 发现，PR #11 已修复）**：`server/Dockerfile` 从上游继承后长期只
   `COPY server/`，而 `server/*` 自 M2a 起 import `app/*`。源码树里跑 pytest 一切正常，
   **镜像却在启动时 `ModuleNotFoundError: No module named 'app'`**。
   新增顶层包或改变 import 关系时，同步检查 Dockerfile 的 `COPY` 列表；CI 的 `Docker image boots` job 会兜底。
 - **生产与仓库不同步**：本仓库的 `main` 不保证等于任何人的线上部署（线上是独立 checkout）。
   上面那个 Dockerfile 问题就是这样藏了很久。任何"线上是怎么跑的"结论都必须实地确认。
-- **main 不发 Release**：`build-apk.yml` 只给**非 main 分支**发 `ci-apk-*` 预发布；
-  main 上的构建只进 Actions artifact（保留 7 / 14 天）。正式版由人在网页上手动建。
+- **发版只走 tag**：推送 `v*` tag 触发 `release.yml`，构建签名包并发布为正式 Release；
+  `build-apk.yml` 不再发布任何预发布，构建产物只进 Actions artifact。
 
 ### 泄露门禁
 
@@ -200,9 +185,8 @@ git hash-object <file> ...     # 推送前
   JSON 损坏时启动**显式失败**，不会静默成空库。
 - **FastAPI TestClient 的 WebSocket**：上下文退出会触发服务端 cleanup；
   `dead_man_switch` 每 2s 发一次心跳，`receive_json()` 会等到它——不要假设没有消息。
-- **`_mcp_sessions` 目前没有 TTL**（K5，M4 处理）。
 - **CI 的 pytest 步骤跑 `tests/` 全目录**；`verify_*.py` 是独立脚本，不被 pytest 收集。
-- **两个包并存**（M2a–M4）：新增代码进 `app/`，legacy `server/*` 只允许 import `app/*`。
+- **两个包并存**（直到 legacy `server/` 并入 `app/`，见 ROADMAP「可选重构」）：新增代码进 `app/`，legacy `server/*` 只允许 import `app/*`。
   `server/config.py` 是 `app/config.py` 的别名层，改配置只改一处。
 
 ### Android
@@ -224,7 +208,7 @@ git hash-object <file> ...     # 推送前
 3. docs/redesign/02-architecture.md（设计宪法）
 4. docs/redesign/01-product.md（已锁定决策 D1–D6）
 
-本次任务：<见 AGENT-WORKFLOW.md §0.3，或填写新任务>
+本次任务：<见 docs/ROADMAP.md 当前版本的待办，或 AGENT-WORKFLOW.md §0.3>
 
 约束：
 - 不得违反 AGENTS.md 的红线（尤其 R1–R3：IP / 凭据 / 绝对路径不进任何文本框，包括 CI 工作流）

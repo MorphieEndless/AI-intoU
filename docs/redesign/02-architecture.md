@@ -187,27 +187,7 @@ CLI 命令集：`create-user` / `reset-password` / `create-token` /
 
 ## 9. 里程碑
 
-| # | 内容 | 验收标准 |
-| --- | --- | --- |
-| M0 | 修复 K1；CI 加 import/compile 冒烟；补行为契约测试（MCP init/tools、WS auth 流） | 现有 verify_* 全绿 + 新冒烟绿 |
-| M1 | SQLAlchemy 模型 + Alembic 初始化 + 旧数据迁移脚本（SQLite 表 + patterns JSON → DB） | 迁移后旧数据完整可读 |
-| M2a | 身份/令牌内核：`app/config.py`（pydantic-settings）、`app/core/security.py::resolve_principal`、`app/domain/identity.py`、`app/cli.py` | 令牌生成/哈希/撤销/过期解析有测试；CLI 能建账号、签三类 token、自检；**零行为变更**（不接线） |
-| M2b | 接线与删除：接入层改用唯一解析器，删除静态 token / sole-phone fallback / OAuth，`/api/tokens` REST，安卓侧改领 phone token | 三类 kind 互不通婚有测试；旧静态 token 有迁移向导；App 无回归（APK CI 绿） |
-| M3 | relay 重构：pydantic WS schema、registry 加 device_id | App 无感知兼容 |
-| M4 | MCP transport 抽出 + session TTL | 客户端无感知兼容 |
-| M5 | 安全与停机加固（§7「做」清单） | SIGTERM 时手机收到 stop_all 有测试 |
-| M6 | 部署向导 v2 + doctor + DEPLOY.md 重写 | 干净机器 15 分钟跑通 |
-| M7 | （后期）极简 Web 管理页：token 管理 + 在线状态 | 静态页 + 现有 API |
-
-每个里程碑独立可交付、可回滚；M0–M2 是重构主体（M2 拆成内核 M2a / 接线 M2b，
-理由见决策记录），M3+ 可在主体稳定后穿插。
-
-## 10. 与 AI 协作的实施方式
-
-- 实现主力模型建议 **GLM-5.3**（工程 Bench 与吞吐优势）；
-  架构层面的极端边界推演可用 Kimi K3 复审。
-- 每轮会话 prompt 必带：本文档 §1/§2/§4 + 当前里程碑的验收标准。
-- 每个里程碑完成后更新本文档「决策记录」，保持文档与代码同步。
+> 已废弃（2026-10-10）。M0–M7 的结局和后续计划见 [`docs/ROADMAP.md`](../ROADMAP.md)。
 
 ## 决策记录
 
