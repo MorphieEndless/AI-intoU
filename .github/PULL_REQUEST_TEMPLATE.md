@@ -14,10 +14,17 @@
 
 > 上面的清单不是形式。2026-09-21 的两次泄露事故，两条都是「描述里写了真实地址」。
 
+## 版本（规则见 `docs/VERSIONING.md`）
+
+- App 版本：<!-- 例：0.18.0 / versionCode 24；未改 App 写「不涉及」 -->
+- 服务端：<!-- 例：CHANGELOG Unreleased 已加条目；未改服务端写「不涉及」 -->
+- [ ] 改了 App：`versionName` 高于最近一个已发布的 tag，`docs/release-notes/v<版本>.md` 已写本 PR 条目
+- [ ] 改了服务端：`server/CHANGELOG.md` 的 `## Unreleased` 已加条目
+
 ## 变更类型
 
 - [ ] 功能
 - [ ] 修复
 - [ ] 文档 / 流程
 - [ ] 安全加固
-- [ ] 重构（对应 `docs/redesign/` 的哪个里程碑：M__）
+- [ ] 重构（对应 `docs/ROADMAP.md` 的哪一项：__）

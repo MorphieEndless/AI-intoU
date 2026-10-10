@@ -1,0 +1,26 @@
+name: Version check
+
+# Rules: docs/VERSIONING.md §6. Logic lives in scripts/check_version.py so it
+# can be run and tested locally; this workflow only provides git history.
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    name: version bump & changelog
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # needs tags and the merge base
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Self-test the checker
+        run: python -m unittest discover -s scripts/tests -v
+      - name: Check this PR
+        run: python scripts/check_version.py --base "origin/${{ github.base_ref }}"

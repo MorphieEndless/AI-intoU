@@ -21,6 +21,7 @@
 | [01-product.md](01-product.md) | 产品定义、角色模型、已锁定的决策 | 所有参与者 |
 | [02-architecture.md](02-architecture.md) | 目标架构、数据模型、协议契约 | **每一轮实现会话必读** |
 | [../ROADMAP.md](../ROADMAP.md) | 进度与待办（唯一一份） | 所有参与者 |
+| [../VERSIONING.md](../VERSIONING.md) | 版本号与发版规范（CI 强制） | 改代码前必读 |
 | [../AGENT-WORKFLOW.md](../AGENT-WORKFLOW.md) | Agent 操作手册：验证命令、推送完整性校验、已知坑、交接提示词 | 动手前必读 |
 | [../../AGENTS.md](../../AGENTS.md) | 基础设施与对外域名红线（R1–R4）与泄露应急流程 | 所有参与者，**提交前必读** |
 
