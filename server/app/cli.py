@@ -1,8 +1,8 @@
 """`python -m app.cli` — the operator console (architecture doc §2/§8).
 
 Accounts and credentials are managed here: the deployment owner creates the
-first account, mints one token per AI platform and per phone, lists what
-exists and revokes what should stop working. No web UI is needed (M7 adds
+first account, mints one token per AI platform and per phone, hands out
+invite codes, lists what exists and revokes what should stop working. No web UI is needed (M7 adds
 one; the CLI stays the supported path).
 
 Rules this module enforces:
@@ -22,7 +22,7 @@ import sqlite3
 import sys
 from pathlib import Path
 
-from app.config import settings
+from app.config import removed_settings_present, settings
 from app.config import validate as validate_config
 from app.core.security import SCOPES, TOKEN_KINDS
 from app.db import (
@@ -42,9 +42,11 @@ from app.domain.identity import (
     mint_token,
     require_user,
     revoke_token,
+    set_active,
     set_password,
     token_state,
 )
+from app.domain.invites import create_invite, list_invites, revoke_invite
 
 EXIT_OK = 0
 EXIT_ERROR = 1
@@ -80,8 +82,8 @@ def _legacy_tables(db_path: str) -> set[str]:
         return set()
     finally:
         conn.close()
-    if "alembic_version" in names:
-        return set()  # already on the new schema
+    if "alembic_version" in names or "users" not in names:
+        return set()  # already on the new schema, or nothing legacy to migrate
     return {t for t in names if not t.startswith("legacy_") and t != "sqlite_sequence"}
 
 
@@ -197,6 +199,112 @@ def cmd_revoke_token(args) -> int:
     return EXIT_OK
 
 
+def cmd_list_users(args) -> int:
+    db_path = resolve_db_path(args.db)
+    _prepare_db(db_path)
+    with session_scope(db_path) as session:
+        users = list_users(session)
+        if not users:
+            _out("No accounts yet — create the owner with: create-user --username <name>")
+            return EXIT_OK
+        _out(f"Accounts ({len(users)}):")
+        for user in users:
+            kinds: dict[str, int] = {}
+            for row in list_tokens(session, user):
+                if token_state(row) == "active":
+                    kinds[row.kind] = kinds.get(row.kind, 0) + 1
+            summary = ",".join(f"{k}×{v}" for k, v in sorted(kinds.items())) or "-"
+            _out(f"  {user.username:<20} {'owner' if user.is_admin else 'user':<5} "
+                 f"{'active' if user.is_active else 'DISABLED':<8} tokens={summary:<16} "
+                 f"created={user.created_at[:10]}  id={user.id}")
+    return EXIT_OK
+
+
+def _set_active(args, active: bool) -> int:
+    db_path = resolve_db_path(args.db)
+    _prepare_db(db_path)
+    with session_scope(db_path) as session:
+        user = set_active(session, is_active=active, username=args.username)
+        _out(f"{'Enabled' if active else 'Disabled'}: {user.username}")
+    if not active:
+        _out("A running server drops this account's credentials on their next request.")
+    return EXIT_OK
+
+
+def cmd_disable_user(args) -> int:
+    return _set_active(args, False)
+
+
+def cmd_enable_user(args) -> int:
+    return _set_active(args, True)
+
+
+def cmd_set_admin(args) -> int:
+    db_path = resolve_db_path(args.db)
+    _prepare_db(db_path)
+    with session_scope(db_path) as session:
+        user = require_user(session, username=args.username)
+        if args.revoke and user.is_admin:
+            owners = [u for u in list_users(session) if u.is_admin and u.is_active]
+            if owners == [user]:
+                raise IdentityError("refusing to remove the last active owner — "
+                                    "make someone else owner first")
+        user.is_admin = 0 if args.revoke else 1
+        session.flush()
+        _out(f"{user.username} is now {'a normal user' if args.revoke else 'an owner'}")
+    return EXIT_OK
+
+
+def cmd_create_invite(args) -> int:
+    db_path = resolve_db_path(args.db)
+    _prepare_db(db_path)
+    with session_scope(db_path) as session:
+        creator = require_user(session, username=args.username) if args.username else None
+        code, row = create_invite(
+            session, creator, max_uses=args.uses,
+            expires_in_days=None if args.no_expiry else args.days, note=args.note,
+        )
+        _out("")
+        _out("=" * 52)
+        _out("  INVITE CODE — shown once, send it privately")
+        _out("=" * 52)
+        _out(f"  {code}")
+        _out("=" * 52)
+        _out(f"  uses    : {row.max_uses}")
+        _out(f"  expires : {row.expires_at or 'never'}")
+        if row.note:
+            _out(f"  note    : {row.note}")
+        _out("")
+        _out("  The newcomer enters it in the App: 设置 → 账号登录 → 用邀请码注册.")
+        _out("")
+    return EXIT_OK
+
+
+def cmd_list_invites(args) -> int:
+    db_path = resolve_db_path(args.db)
+    _prepare_db(db_path)
+    with session_scope(db_path) as session:
+        rows = list_invites(session)
+        if not rows:
+            _out("No invites yet — mint one with: create-invite")
+            return EXIT_OK
+        _out(f"Invites ({len(rows)}) — codes are never stored, only their first group:")
+        for row in rows:
+            _out(f"  {row.prefix}-…  {row.state:<8} used {row.used_count}/{row.max_uses:<3} "
+                 f"expires={(row.expires_at or 'never')[:10]:<10} "
+                 f"by={row.used_by or '-':<20} {row.note}  id={row.id}")
+    return EXIT_OK
+
+
+def cmd_revoke_invite(args) -> int:
+    db_path = resolve_db_path(args.db)
+    _prepare_db(db_path)
+    with session_scope(db_path) as session:
+        row, changed = revoke_invite(session, args.invite)
+        _out(f"{'Revoked' if changed else 'Already revoked'}: invite {row.prefix}-… {row.note}")
+    return EXIT_OK
+
+
 def cmd_doctor(args) -> int:
     """Read-only health report (M6 extends it with WS/heartbeat checks)."""
     db_path = resolve_db_path(args.db)
@@ -209,11 +317,16 @@ def cmd_doctor(args) -> int:
     except RuntimeError as exc:
         checks.append(("FAIL", "config", str(exc)))
 
-    if settings.STATIC_BEARER_TOKEN:
+    for name in removed_settings_present():
         checks.append((
-            "WARN", "legacy static token",
-            "SB_STATIC_BEARER_TOKEN is set; the mechanism is removed in M2 — see the migration guide",
+            "WARN", "removed setting",
+            f"{name} is set but ignored since the account/token migration — "
+            "delete it from .env (see docs/MULTI-USER.md)",
         ))
+    checks.append((
+        "INFO", "registration",
+        "open to everyone" if settings.REGISTRATION_OPEN else "invite-only",
+    ))
 
     # ── database ───────────────────────────────────────────────────────
     legacy = _legacy_tables(db_path)
@@ -300,7 +413,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     parser = argparse.ArgumentParser(
         prog="python -m app.cli",
-        description="AI-intoU server console: accounts, tokens, diagnostics.",
+        description="AI-intoU server console: accounts, invites, tokens, diagnostics.",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -339,6 +452,42 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--username", required=True)
     p.add_argument("--token", required=True, help="token id or 12-character prefix")
     p.set_defaults(func=cmd_revoke_token)
+
+    p = sub.add_parser("list-users", parents=[common],
+                       help="list accounts with role, state and active token counts")
+    p.set_defaults(func=cmd_list_users)
+
+    p = sub.add_parser("disable-user", parents=[common],
+                       help="disable an account (its tokens and sessions stop working)")
+    p.add_argument("--username", required=True)
+    p.set_defaults(func=cmd_disable_user)
+
+    p = sub.add_parser("enable-user", parents=[common], help="re-enable an account")
+    p.add_argument("--username", required=True)
+    p.set_defaults(func=cmd_enable_user)
+
+    p = sub.add_parser("set-admin", parents=[common],
+                       help="grant (or with --revoke, remove) owner rights")
+    p.add_argument("--username", required=True)
+    p.add_argument("--revoke", action="store_true")
+    p.set_defaults(func=cmd_set_admin)
+
+    p = sub.add_parser("create-invite", parents=[common],
+                       help="mint an invite code for registration (printed once)")
+    p.add_argument("--uses", type=int, default=1, help="how many accounts it can create (1-50)")
+    p.add_argument("--days", type=int, default=7, help="valid for N days (1-90, default 7)")
+    p.add_argument("--no-expiry", action="store_true", help="never expires")
+    p.add_argument("--note", default="", help="who it is for, e.g. a QQ nickname")
+    p.add_argument("--username", default=None, help="record which owner issued it")
+    p.set_defaults(func=cmd_create_invite)
+
+    p = sub.add_parser("list-invites", parents=[common], help="list invite codes and their use")
+    p.set_defaults(func=cmd_list_invites)
+
+    p = sub.add_parser("revoke-invite", parents=[common],
+                       help="revoke an invite by id or 4-character prefix")
+    p.add_argument("--invite", required=True)
+    p.set_defaults(func=cmd_revoke_invite)
 
     p = sub.add_parser("doctor", parents=[common],
                        help="read-only health report (config, migration, tokens)")

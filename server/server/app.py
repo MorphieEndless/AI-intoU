@@ -1,19 +1,23 @@
 """
-Signal Bridge Remote — Main Server Application
+AI-intoU — main server application (legacy package entry point).
 
 Single FastAPI app that serves three roles:
-  1. OAuth-style auth (register, login, token refresh)
-  2. MCP endpoint (Streamable HTTP — tool calls from Claude)
+  1. Accounts & credentials (invite registration, login, API tokens, admin)
+     — routers in `app.api`
+  2. MCP endpoint (Streamable HTTP — tool calls from AI clients)
   3. WebSocket relay hub (persistent phone connections)
 
-Plus rate limiting, IP banning, and the dead man's switch.
+Every credential goes through the single resolver
+`app.core.security.resolve_principal` (architecture doc §5):
+  · POST /mcp      agent token (or a session credential)
+  · WS /ws/phone   phone token only
+  · REST /api/*    session credential (see app.api)
+There is no static token, no sole-phone fallback and no OAuth (M2b).
 """
 from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
-import sys
 import uuid
 from contextlib import asynccontextmanager
 
@@ -21,15 +25,15 @@ from fastapi import FastAPI, HTTPException, Request, Response, WebSocket, WebSoc
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.api import accounts_router, admin_router
+from app.api.deps import require
+from app.config import removed_settings_present
+from app.core.security import describe_credential, extract_bearer, resolve_credential, resolve_principal
+from app.domain.identity import IdentityError
+from app.infra.legacy_migration import prepare_database
 from . import config
-from .auth import (
-    init_db, create_user, verify_user, create_token, verify_token,
-    extract_token, ip_tracker, rate_limiter,
-    get_safety_config, set_safety_config,
-)
+from .auth import ip_tracker, rate_limiter, get_safety_config, set_safety_config
 from .mcp_tools import TOOLS, HANDLERS, current_user_id
-from .oauth import init_oauth_db
-from .oauth_routes import router as oauth_router
 from .pattern_routes import router as pattern_router
 from .relay_hub import check_ws_ip_limit, release_ws_ip_slot, get_ip_from_headers
 from .session_registry import registry
@@ -51,20 +55,21 @@ log = logging.getLogger("signal_bridge")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     config.validate()
-    init_db()
-    init_oauth_db()
+    # Legacy databases are migrated (with a backup) before anything serves.
+    await asyncio.to_thread(prepare_database, config.settings.DB_PATH, config.settings.PATTERNS_DIR)
+    for name in removed_settings_present():
+        log.warning(f"{name} is set but no longer used (removed in the account/token migration)")
     await dead_man_switch.start()
-    log.info(f"Signal Bridge Remote started on {config.HOST}:{config.PORT}")
-    log.info(f"Registration {'OPEN' if config.REGISTRATION_OPEN else 'CLOSED'}")
-    log.info(f"MCP auth {'REQUIRED' if config.REQUIRE_MCP_AUTH else 'optional (sole-phone fallback enabled)'}")
+    log.info(f"AI-intoU started on {config.HOST}:{config.PORT}")
+    log.info(f"Registration {'OPEN' if config.REGISTRATION_OPEN else 'invite-only'}")
     yield
     await dead_man_switch.stop()
-    log.info("Signal Bridge Remote shutting down")
+    log.info("AI-intoU shutting down")
 
 
 app = FastAPI(
-    title="Signal Bridge Remote",
-    version="1.0.0",
+    title="AI-intoU",
+    version="1.1.0",
     docs_url=None,
     redoc_url=None,
     openapi_url=None,
@@ -79,89 +84,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Mount OAuth routes (metadata, registration, authorize, token)
-app.include_router(oauth_router)
+app.include_router(accounts_router)
+app.include_router(admin_router)
 app.include_router(pattern_router)
 
-
-# ════════════════════════════════════════════════════════════════════════
-# Auth helpers
-# ════════════════════════════════════════════════════════════════════════
 
 def _get_ip(request: Request) -> str:
     forwarded = request.headers.get("X-Forwarded-For", "")
     if forwarded:
         return forwarded.split(",")[0].strip()
     return request.client.host if request.client else "unknown"
-
-
-async def _require_auth(request: Request) -> dict | None:
-    """Validate Bearer token. Returns user dict or None."""
-    token = extract_token(request.headers.get("Authorization", ""))
-    if not token:
-        return None
-    return verify_token(token)
-
-
-# ════════════════════════════════════════════════════════════════════════
-# Auth Endpoints
-# ════════════════════════════════════════════════════════════════════════
-
-@app.post("/auth/register")
-async def register(request: Request):
-    """Register a new user account."""
-    ip = _get_ip(request)
-
-    if await ip_tracker.is_banned(ip):
-        return JSONResponse({"error": "Temporarily banned"}, status_code=429)
-
-    if not await rate_limiter.check(f"auth:{ip}", config.RATE_LIMIT_AUTH):
-        return JSONResponse({"error": "Too many attempts"}, status_code=429)
-
-    if not config.REGISTRATION_OPEN:
-        return JSONResponse({"error": "Registration is closed"}, status_code=403)
-
-    body = await request.json()
-    username = body.get("username", "").strip()
-    password = body.get("password", "")
-
-    try:
-        user = await asyncio.to_thread(create_user, username, password)
-    except ValueError as e:
-        # Don't count validation errors (short username, weak password) toward IP ban.
-        # Only actual auth failures (wrong credentials) should inflate the ban counter.
-        return JSONResponse({"error": str(e)}, status_code=400)
-
-    token = create_token(user["user_id"], user["username"])
-    await ip_tracker.clear_failures(ip)
-
-    return {"user_id": user["user_id"], "username": user["username"], "token": token}
-
-
-@app.post("/auth/login")
-async def login(request: Request):
-    """Authenticate and receive a JWT."""
-    ip = _get_ip(request)
-
-    if await ip_tracker.is_banned(ip):
-        return JSONResponse({"error": "Temporarily banned"}, status_code=429)
-
-    if not await rate_limiter.check(f"auth:{ip}", config.RATE_LIMIT_AUTH):
-        return JSONResponse({"error": "Too many attempts"}, status_code=429)
-
-    body = await request.json()
-    username = body.get("username", "")
-    password = body.get("password", "")
-
-    user = await asyncio.to_thread(verify_user, username, password)
-    if not user:
-        await ip_tracker.record_failure(ip)
-        return JSONResponse({"error": "Invalid credentials"}, status_code=401)
-
-    token = create_token(user["user_id"], user["username"])
-    await ip_tracker.clear_failures(ip)
-
-    return {"user_id": user["user_id"], "username": user["username"], "token": token}
 
 
 # ════════════════════════════════════════════════════════════════════════
@@ -174,34 +106,22 @@ async def login(request: Request):
 #   - Authless mode for claude.ai connector, Bearer token for Claude Desktop
 # ════════════════════════════════════════════════════════════════════════
 
-# In-memory MCP session tracking (maps session_id → user_id)
-_mcp_sessions: dict[str, str] = {}
+MCP_AUTH_HELP = (
+    "需要 AI 接入 token：在樱趣 App「设置 → AI 接入」里生成，"
+    "填到请求头 Authorization: Bearer aiu_agent_…"
+)
 
 
-async def _resolve_mcp_user(request: Request) -> dict | None:
-    """
-    Resolve the user for an MCP request.
-    Priority: Bearer token > Mcp-Session-Id lookup > sole active phone session.
-    """
-    # 1. Try Bearer token auth (Claude Desktop)
-    user = await _require_auth(request)
-    if user:
-        return user
-
-    # 2. Try Mcp-Session-Id (subsequent requests from claude.ai)
-    session_id = request.headers.get("mcp-session-id", "")
-    if session_id and session_id in _mcp_sessions:
-        return {"user_id": _mcp_sessions[session_id]}
-
-    # 3. Fall back to sole active phone session (authless / claude.ai init)
-    #    Disabled when SB_REQUIRE_MCP_AUTH=true (multi-user mode).
-    if not config.REQUIRE_MCP_AUTH:
-        fallback_user_id = await registry.get_sole_user_id()
-        if fallback_user_id:
-            log.info(f"MCP request without auth — using active session: {fallback_user_id}")
-            return {"user_id": fallback_user_id}
-
-    return None
+async def _resolve_mcp_user(request: Request) -> tuple[dict | None, str]:
+    """Agent token (or a person's session). Returns (user, rejection message)."""
+    header = request.headers.get("Authorization", "")
+    principal = await asyncio.to_thread(resolve_principal, header)
+    if principal is None:
+        return None, MCP_AUTH_HELP
+    if not principal.allows(("agent",), allow_session=True):
+        return None, "这是手机中继用的 token，不能给 AI 用。" + MCP_AUTH_HELP
+    return {"user_id": principal.user_id, "username": principal.username,
+            "label": principal.label}, ""
 
 
 @app.post("/mcp")
@@ -233,11 +153,12 @@ async def mcp_endpoint(request: Request):
     if req_id is None:
         return Response(status_code=202)
 
-    # Resolve user
-    user = await _resolve_mcp_user(request)
+    # Resolve user — every request carries its own credential
+    user, rejection = await _resolve_mcp_user(request)
     if not user:
+        await ip_tracker.record_failure(ip)
         return JSONResponse(
-            {"jsonrpc": "2.0", "error": {"code": -32000, "message": "No auth token and no active phone session"}},
+            {"jsonrpc": "2.0", "id": req_id, "error": {"code": -32000, "message": rejection}},
             status_code=401,
         )
 
@@ -256,17 +177,17 @@ async def mcp_endpoint(request: Request):
     # ── Route by method ─────────────────────────────────────────────
 
     if method == "initialize":
-        # Generate a session ID and bind it to this user
+        # The session id satisfies the transport spec; it is never used as a
+        # credential (the Bearer header is checked on every request).
         session_id = str(uuid.uuid4())
-        _mcp_sessions[session_id] = user["user_id"]
-        log.info(f"MCP session created: {session_id[:8]}... for user {user['user_id']}")
+        log.info(f"MCP session created: {session_id[:8]}... for {user['username']} via {user['label']}")
         client_ver = (params or {}).get("protocolVersion", "2025-03-26")
         supported = {"2024-11-05", "2025-03-26", "2025-06-18"}
 
         result = {
             "protocolVersion": client_ver if client_ver in supported else "2025-03-26",
             "capabilities": {"tools": {}},
-            "serverInfo": {"name": "Signal Bridge Remote", "version": "1.0.0"},
+            "serverInfo": {"name": "AI-intoU", "version": "1.1.0"},
         }
         response = JSONResponse({"jsonrpc": "2.0", "id": req_id, "result": result})
         response.headers["Mcp-Session-Id"] = session_id
@@ -400,26 +321,37 @@ async def _handle_phone_ws(ws: WebSocket):
             await ip_tracker.record_failure(ip)
             return
 
-        user = verify_token(msg["token"])
-        if not user:
-            log.warning(f"[PHONE] Rejecting phone auth: token does not match from {ip}")
-            await ws.send_json({"type": "auth_error", "message": "Bearer Token 错误或无效，请检查 App 设置"})
+        credential = str(msg.get("token") or "")
+        principal = await asyncio.to_thread(resolve_credential, credential)
+        if principal is None or principal.kind != "phone":
+            family = describe_credential(credential)
+            if principal is not None and principal.kind == "agent":
+                message = "这是 AI 接入 token，手机需要 aiu_phone_ 开头的手机 token"
+            elif principal is not None:
+                message = "App 版本过旧：请升级樱趣 App 后重新登录"
+            else:
+                message = ("凭证无效或已被撤销。旧版 Bearer Token 已停用："
+                           "请升级 App 后用账号登录，或填写 aiu_phone_ 开头的手机 token")
+            log.warning(f"[PHONE] Rejecting phone auth ({family}) from {ip}")
+            await ws.send_json({"type": "auth_error", "message": message})
             await ws.close(4001, "Invalid token")
             await ip_tracker.record_failure(ip)
             return
 
+        user = {"user_id": principal.user_id, "username": principal.username}
         user_id = user["user_id"]
         await ip_tracker.clear_failures(ip)
         await ws.send_json({
             "type": "auth_ok",
             "user_id": user_id,
-            "message": "Connected to Signal Bridge relay",
+            "message": "Connected to AI-intoU relay",
         })
         log.info(f"Phone connected: user={user['username']} ip={ip}")
 
         # Create a wrapper that looks like a websockets ServerConnection
         wrapper = _FastAPIWSWrapper(ws)
         session = await registry.register(user_id, wrapper)
+        session.token_id = principal.token_id
 
         # Load per-user governor config from database
         effective_config = _effective_safety_config(user_id)
@@ -518,56 +450,46 @@ def _effective_safety_config(user_id: str) -> dict:
     return merged
 
 
+async def _safety_principal(request: Request):
+    # The App reads/writes its own safety settings with its phone token or a
+    # session; an AI client cannot loosen its own limits.
+    return await require(request, kinds=("phone",), allow_session=True)
+
+
 @app.get("/safety/config")
 async def get_safety_config_endpoint(request: Request):
     """Get the effective safety config for the authenticated user."""
-    token = extract_token(request.headers.get("authorization", ""))
-    if not token:
-        return JSONResponse({"error": "Not authenticated"}, status_code=401)
-    user = verify_token(token)
-    if not user:
-        return JSONResponse({"error": "Invalid token"}, status_code=401)
-
-    return _effective_safety_config(user["user_id"])
+    principal = await _safety_principal(request)
+    return await asyncio.to_thread(_effective_safety_config, principal.user_id)
 
 
 @app.post("/safety/config")
 async def set_safety_config_endpoint(request: Request):
     """Update per-user safety config overrides."""
-    token = extract_token(request.headers.get("authorization", ""))
-    if not token:
-        return JSONResponse({"error": "Not authenticated"}, status_code=401)
-    user = verify_token(token)
-    if not user:
-        return JSONResponse({"error": "Invalid token"}, status_code=401)
-
+    principal = await _safety_principal(request)
     try:
         body = await request.json()
     except Exception:
         return JSONResponse({"error": "Invalid JSON"}, status_code=400)
+    if not isinstance(body, dict):
+        return JSONResponse({"error": "Body must be a JSON object"}, status_code=400)
 
-    overrides = set_safety_config(user["user_id"], body)
-    effective = _effective_safety_config(user["user_id"])
-
-    # Update the live governor with new config
-    governor.apply_user_config(user["user_id"], effective)
-
-    log.info(f"Safety config updated for user {user['user_id']}: {overrides}")
+    try:
+        overrides = await asyncio.to_thread(set_safety_config, principal.user_id, body)
+    except IdentityError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    effective = await asyncio.to_thread(_effective_safety_config, principal.user_id)
+    governor.apply_user_config(principal.user_id, effective)
+    log.info(f"Safety config updated for user {principal.user_id}: {overrides}")
     return effective
 
 
 @app.get("/safety/status")
 async def safety_status(request: Request):
     """Get current governor state for the authenticated user."""
-    token = extract_token(request.headers.get("authorization", ""))
-    if not token:
-        return JSONResponse({"error": "Not authenticated"}, status_code=401)
-    user = verify_token(token)
-    if not user:
-        return JSONResponse({"error": "Invalid token"}, status_code=401)
-
-    state = governor.get_state(user["user_id"])
-    state["config"] = _effective_safety_config(user["user_id"])
+    principal = await _safety_principal(request)
+    state = governor.get_state(principal.user_id)
+    state["config"] = await asyncio.to_thread(_effective_safety_config, principal.user_id)
     return state
 
 

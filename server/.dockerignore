@@ -13,3 +13,6 @@ phone/
 termux_relay*.py
 README*.md
 CHANGELOG.md
+*.db-*
+*.bak
+*.pyc

@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### Breaking
+
+- **Multi-user onboarding (M2b).** Static bearer token, OAuth and the
+  sole-phone MCP fallback are removed. Credentials are now session / phone
+  (`aiu_phone_`) / agent (`aiu_agent_`) tokens, each accepted only where it
+  belongs. Upgrade the App to 0.17.0 together with the server and replace AI
+  client tokens. See `docs/MULTI-USER.md`.
+
+### Added
+
+- Invite-code registration (`/auth/register` with `invite_code`), token
+  management API (`/api/tokens`), owner admin API (`/api/admin/*`) and CLI
+  commands for invites and accounts.
+- Automatic, atomic legacy database migration at startup with a `.bak`.
+
 ### Fixed
 
 - **Disabling the governor now disables the governor.** `enabled` gated only

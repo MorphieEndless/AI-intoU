@@ -46,9 +46,8 @@ MCP 客户端 ──HTTPS / JSON-RPC──▶ /mcp
 
 完整的环境变量说明见 [.env.example](.env.example)。部署脚本默认使用的关键项：
 
-- `SB_REQUIRE_MCP_AUTH=true`：所有 MCP 请求都必须带认证
-- `SB_STATIC_BEARER_TOKEN`：单用户静态 Token
-- `SB_REGISTRATION_OPEN=false`：关闭公开注册
+- `SB_REGISTRATION_OPEN=false`：关闭公开注册，只能用邀请码注册（见 [MULTI-USER.md](../docs/MULTI-USER.md)）
+- 所有 MCP 请求都必须带 agent token（`aiu_agent_…`）；手机 relay 只接受手机 token（`aiu_phone_…`）
 - `SB_DB_PATH=/data/signal_bridge.db`、`SB_PATTERNS_DIR=/data/patterns`：数据放在持久化卷里
 
 ## 测试
@@ -57,11 +56,11 @@ MCP 客户端 ──HTTPS / JSON-RPC──▶ /mcp
 python -m pip install -r requirements-server.txt httpx
 python tests/verify_server.py && python tests/verify_governor.py \
   && python tests/verify_numeric_inputs.py && python tests/verify_patterns.py \
-  && python tests/verify_static_token.py && python tests/verify_relays.py
+  && python tests/verify_relays.py && python -m pytest -q
 ```
 
 ## 来源
 
-服务端源自 [Signal Bridge Remote](https://github.com/AletheiaVox/signal_bridge_remote)（MIT，作者 Aletheia）。在上游基础上，增加了静态 Token 认证、pattern 库、吮吸输出、樱趣 App 的原生 relay 协议和部署脚本等改造。上游许可见 [THIRD_PARTY_LICENSES.md](../THIRD_PARTY_LICENSES.md)，本项目许可见 [LICENSE](../LICENSE) 与 [附加条款](../ADDITIONAL-TERMS.md)。
+服务端源自 [Signal Bridge Remote](https://github.com/AletheiaVox/signal_bridge_remote)（MIT，作者 Aletheia）。在上游基础上，增加了账号 / 邀请码 / 分类 token 认证、pattern 库、吮吸输出、樱趣 App 的原生 relay 协议和部署脚本等改造。上游许可见 [THIRD_PARTY_LICENSES.md](../THIRD_PARTY_LICENSES.md)，本项目许可见 [LICENSE](../LICENSE) 与 [附加条款](../ADDITIONAL-TERMS.md)。
 
 代码里的 `signal_bridge` 等命名是从上游继承下来的，保留它们是为了兼容已有的部署。

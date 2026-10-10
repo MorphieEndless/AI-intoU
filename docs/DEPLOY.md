@@ -24,9 +24,9 @@ cd AI-intoU
 bash deploy/setup-server.sh
 ```
 
-首次运行时，脚本会生成 `server/.env`，设置随机密钥和静态 Token，强制开启 MCP 认证并关闭公开注册。数据库和自定义模式目录都放在 Docker 的 `/data` 持久化卷里。之后脚本会构建镜像、启动容器，并等到 `/health` 返回成功。
+首次运行时，脚本会生成 `server/.env`（随机密钥，关闭公开注册），创建 owner 账号（随机密码只打印一次），并签发首个手机 token（`aiu_phone_…`）和 AI token（`aiu_agent_…`）。数据库和自定义模式目录都放在 Docker 的 `/data` 持久化卷里。之后脚本会构建镜像、启动容器，并等到 `/health` 返回成功。
 
-**终端打印出来的 Bearer Token 请私下保存。** App 和 MCP 用的是同一个值，拿到它的人都可能访问你的服务。不要截图发群，也不要提交 `.env`。再次运行脚本会保留原配置，不会重新生成或打印 Token。忘了的话，在服务器上私下查看 `.env` 里的 `SB_STATIC_BEARER_TOKEN`。
+**终端打印出来的 owner 密码和 token 请私下保存**，它们只显示这一次：App 用账号登录（或手机 token），AI 客户端用 AI token。不要截图发群，也不要提交 `.env`。再次运行脚本会保留已有账号，不会重新打印。忘了密码可以用 `docker compose exec signal-bridge python -m app.cli reset-password --username <name>` 重置；token 丢了就在 App「AI 接入」里重新生成。给朋友用、发邀请码、从旧版升级，见 [MULTI-USER.md](MULTI-USER.md)。
 
 服务默认绑定 `127.0.0.1:8420`，这时外部手机还连不上。下面两种方式选一种。
 
@@ -140,7 +140,7 @@ App 连接设置页底部的 RikkaHub Remote MCP 区域可以复制 URL、Author
 1. 私下备份 `.env`，并记下当前镜像和代码的版本信息。记录旧配置里的 `SB_DB_PATH` 和 `SB_PATTERNS_DIR`，同时查看正在运行的容器实际用的是哪个路径，不要默认旧数据库就在 `/data`。这些信息里可能有凭证，不要把整份 inspect 输出公开。
 2. 暂停使用，在 `server` 目录执行 `docker compose stop signal-bridge`。从这个还没删除的容器里复制出数据库，以及同目录下的 SQLite `-wal`、`-shm` 文件（如果有），自定义模式目录也一起备份。`docker cp` 可以从已停止的容器里复制文件。按原来 `.env.example` 的相对路径，数据库在这个镜像里通常是 `/app/signal_bridge.db`，模式目录默认是 `/app/server/data/patterns`，具体以实际配置为准。
 3. 把备份的数据复制到同一个容器的 `/data/signal_bridge.db` 和 `/data/patterns`。`/data` 是 Compose 挂载的数据卷，复制前先确认挂载存在，也别覆盖卷里另一份需要保留的数据。没有自定义模式的话，可以不迁移模式文件。
-4. 在 `.env` 里设置 `SB_DB_PATH=/data/signal_bridge.db`、`SB_PATTERNS_DIR=/data/patterns` 和 `SB_REQUIRE_MCP_AUTH=true`。单用户部署再设置 `SB_REGISTRATION_OPEN=false`。原来有效的密钥和静态 Token 保持不变。
+4. 在 `.env` 里设置 `SB_DB_PATH=/data/signal_bridge.db`、`SB_PATTERNS_DIR=/data/patterns` 和 `SB_REGISTRATION_OPEN=false`，并删除 `SB_STATIC_BEARER_TOKEN`、`SB_STATIC_USER_ID`、`SB_REQUIRE_MCP_AUTH`、`SB_TOKEN_EXPIRY_HOURS`（新版已不再使用，留着只会出警告）。`SB_SECRET_KEY` 保持不变。首次启动会自动把旧数据库迁移成账号 / token 结构，并在旁边留一份 `.bak`，详见 [MULTI-USER.md](MULTI-USER.md) §4。
 5. 走公网反向代理的话用 `SB_BIND_ADDRESS=127.0.0.1`；在可信网络里直连则按 B 节设置。新版 Compose 默认只绑定回环地址，旧的 IP 直连部署需要显式配置这一项。
 6. 运行部署脚本，检查服务健康、原有数据和客户端认证是否正常。验证完成前，先保留备份和旧镜像。
 
