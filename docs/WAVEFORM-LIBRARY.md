@@ -10,6 +10,9 @@ and replay/detail/delete actions. The example is named `示例波形-波浪`.
 - `is_liked` signals user feedback to the AI.
 - `is_favorite` is the user's personal collection filter.
 - `description` is an optional note; new notes and edits allow 120 characters.
+- `repeat` is user-editable for non-built-ins (1–60, total ≤ 10 minutes),
+  with a stepper and live total in the detail sheet. Names are never
+  editable by humans.
 - Marks switch quietly, with no success notification. Failed writes remain
   visible and do not pretend that the server accepted a change.
 - Detail editing has inline save confirmation and an unsaved-change guard.
@@ -28,7 +31,9 @@ supply user IDs. Responses have `Cache-Control: no-store`.
   avoid a detail request for every visible chart.
 - `GET /patterns/{id}` reads exact IDs, including `builtin-wave`.
 - `PATCH /patterns/{id}` accepts a nonempty partial metadata object. Unknown
-  fields, nulls, string booleans and overlong notes are rejected.
+  fields, nulls, string booleans, non-integer or out-of-range `repeat` values
+  and overlong notes are rejected. Patching `repeat` on the built-in returns
+  409; a total above ten minutes returns 422. Combined patches are atomic.
 - `DELETE /patterns/{id}` hides the pattern immediately and returns a
   six-second server undo window; the app offers undo for five seconds.
 - `POST /patterns/{id}/restore` restores a private deletion within that
@@ -71,6 +76,19 @@ the existing dispatcher validates again and applies scale exactly once.
 Stop invokes the existing real stop action. The progress cursor uses the
 phone's actual running job timeline, not browser-style simulated playback;
 it is not a physical sensor or a Bluetooth acknowledgement.
+
+Replayed output can pause and resume from the phone. Pausing stops all
+channels immediately and freezes the job timeline; resuming re-applies the
+current step and finishes the remaining time and rounds. Fixed levels pause
+into a snapshot and timed commands keep their remaining duration. Any new
+command clears the paused state. Pause and resume are phone-local only;
+the relay command path never exposes them.
+
+The library list lives in a process-level cache bound to the current
+connection/account. It loads on app entry, survives tab switches without
+re-requesting, refreshes manually or in the background after five minutes
+(keeping the current list visible), and every local write — marks, notes,
+repeat, delete, undo — updates the cache in place.
 
 Metadata, listing, detail, deletion and undo never issue device commands.
 

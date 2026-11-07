@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Stop
@@ -29,6 +30,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.testTag
@@ -49,81 +52,62 @@ import org.json.JSONObject
 fun PatternLibraryScreen(
     config: ConnectionConfig, connected: Boolean, history: ActivityStore, onPlay: (JSONObject) -> Unit,
     onStop: () -> Unit = {}, playingId: String? = null, playbackProgress: Float? = null,
-    libraryApi: LibraryApi? = null,
+    libraryApi: LibraryApi? = null, repository: PatternLibraryRepository? = null,
+    paused: Boolean = false, onPause: () -> Unit = {}, onResume: () -> Unit = {},
 ) {
-    val api = libraryApi ?: remember(config) { PatternApi(config) }
+    val repo = repository ?: remember(config, libraryApi) { PatternLibraryRepository({ libraryApi ?: PatternApi(it) }) }
     val scope = rememberCoroutineScope()
-    var patterns by remember(api) { mutableStateOf<List<PatternDefinition>>(emptyList()) }
-    var total by remember(api) { mutableIntStateOf(0) }
-    var loading by remember(api) { mutableStateOf(false) }
-    var error by remember(api) { mutableStateOf<String?>(null) }
-    var detailId by remember(api) { mutableStateOf<String?>(null) }
-    var deleting by remember(api) { mutableStateOf<PatternDefinition?>(null) }
-    var undoId by remember(api) { mutableStateOf<String?>(null) }
-    var filter by remember(api) { mutableStateOf("all") }
-    var query by remember(api) { mutableStateOf("") }
-    var busy by remember(api) { mutableStateOf<Set<String>>(emptySet()) }
-    var generation by remember(api) { mutableIntStateOf(0) }
-    val snackbar = remember(api) { SnackbarHostState() }
+    val state by repo.state.collectAsState()
+    var detailId by remember { mutableStateOf<String?>(null) }
+    var focusNote by remember { mutableStateOf(false) }
+    var deleting by remember { mutableStateOf<PatternDefinition?>(null) }
+    var undoId by remember { mutableStateOf<String?>(null) }
+    var busy by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var actionError by remember { mutableStateOf<String?>(null) }
+    var queryText by remember(state.key) { mutableStateOf(state.query) }
+    val snackbar = remember { SnackbarHostState() }
+    val patterns = state.patterns
+    val total = state.total
+    val loading = state.loading
+    val error = actionError ?: state.error
+    val filter = state.filter
 
-    suspend fun load(more: Boolean = false) {
-        val ticket = ++generation
-        val requestedFilter = filter
-        val requestedQuery = query
-        val offset = if (more) patterns.size else 0
-        loading = true; error = null
-        try {
-            val page = api.list(offset, requestedFilter, requestedQuery)
-            val values = page.patterns.map { it.definition ?: error("服务器尚未升级到新版波形库，请先部署服务端") }
-            if (generation == ticket && filter == requestedFilter && query == requestedQuery) {
-                patterns = if (more) (patterns + values).distinctBy { it.id } else values
-                total = page.total
-            }
-        } catch (e: CancellationException) { throw e }
-        catch (e: Exception) { if (generation == ticket) error = e.message ?: "读取波形库失败" }
-        finally { if (generation == ticket) loading = false }
-    }
-    LaunchedEffect(api, filter, query) {
-        generation++ // Invalidate an in-flight request as soon as the search changes.
-        loading = true
-        patterns = emptyList(); total = 0
-        if (query.isNotBlank()) delay(250)
-        load()
-    }
-    fun replace(p: PatternDefinition) {
-        patterns = patterns.map { if (it.id == p.id) p else it }
+    LaunchedEffect(repo, config) { repo.bind(config); repo.ensureLoaded() }
+    LaunchedEffect(queryText) {
+        if (queryText != repo.state.value.query) {
+            if (queryText.isNotBlank()) delay(250)
+            repo.select(repo.state.value.filter, queryText)
+        }
     }
     fun update(id: String, fields: JSONObject, onSuccess: () -> Unit = {}) {
         if (id in busy) return
         busy = busy + id
-        error = null
+        actionError = null
         scope.launch {
             try {
-                val p = PatternDefinition.from(api.patch(id, fields))
-                generation++ // A list response captured before this write must not overwrite it.
-                loading = false
-                replace(p)
+                val p = repo.patch(id, fields)
                 onSuccess()
                 // Keep an open detail alive; filtered cards are reconciled after closing it.
-                if (detailId == null && ((filter == "liked" && !p.isLiked) || (filter == "favorites" && !p.isFavorite))) {
-                    patterns = patterns.filterNot { it.id == id }; total = (total - 1).coerceAtLeast(0)
+                val f = repo.state.value.filter
+                if (detailId == null && ((f == "liked" && !p.isLiked) || (f == "favorites" && !p.isFavorite))) {
+                    repo.removeLocal(id)
                 }
             } catch (e: CancellationException) { throw e }
-            catch (e: Exception) { error = e.message ?: "保存失败，请重试" }
+            catch (e: Exception) { actionError = e.message ?: "保存失败，请重试" }
             finally { busy = busy - id }
         }
     }
     fun play(p: PatternDefinition) {
-        if (p.id == playingId) { onStop(); return }
+        if (p.id == playingId) { if (paused) onResume() else onPause(); return }
         if (!connected || p.id in busy) return
         busy = busy + p.id
         scope.launch {
             try {
-                val command = playbackCommand(api.get(p.id))
+                val command = playbackCommand((repo.api ?: error("波形库未绑定")).get(p.id))
                 // The service independently validates and publishes actual execution state.
                 onPlay(command)
             } catch (e: CancellationException) { throw e }
-            catch (e: Exception) { error = e.message ?: "无法重放波形" }
+            catch (e: Exception) { actionError = e.message ?: "无法重放波形" }
             finally { busy = busy - p.id }
         }
     }
@@ -142,7 +126,7 @@ fun PatternLibraryScreen(
                     )
                     TextButton(
                         enabled = !loading,
-                        onClick = { scope.launch { load() } },
+                        onClick = { scope.launch { repo.refresh() } },
                         modifier = Modifier.semantics { contentDescription = "刷新波形库" },
                     ) {
                         Text("刷新", style = MaterialTheme.typography.labelLarge)
@@ -150,11 +134,11 @@ fun PatternLibraryScreen(
                 }
             }
             item {
-                LibraryFilters(filter) { value -> filter = value }
+                LibraryFilters(filter) { value -> scope.launch { repo.select(value, repo.state.value.query) } }
                 Spacer(Modifier.height(12.dp))
                 OutlinedTextField(
-                    value = query,
-                    onValueChange = { query = it.take(120) },
+                    value = queryText,
+                    onValueChange = { queryText = it.take(120) },
                     modifier = Modifier
                         .fillMaxWidth()
                         .testTag("wave-search"),
@@ -168,9 +152,9 @@ fun PatternLibraryScreen(
                     leadingIcon = {
                         Icon(Icons.Outlined.Search, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     },
-                    trailingIcon = if (query.isNotEmpty()) {
+                    trailingIcon = if (queryText.isNotEmpty()) {
                         {
-                            IconButton(onClick = { query = "" }) {
+                            IconButton(onClick = { queryText = "" }) {
                                 Icon(Icons.Outlined.Close, "清空搜索", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
@@ -198,14 +182,14 @@ fun PatternLibraryScreen(
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Text(
-                        text = if (query.isNotBlank()) "没有找到这段波形" else if (filter == "favorites") "收藏夹还空着" else "还没有标记喜欢的波形",
+                        text = if (state.query.isNotBlank()) "没有找到这段波形" else if (filter == "favorites") "收藏夹还空着" else "还没有标记喜欢的波形",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurface,
                     )
                     Spacer(Modifier.height(8.dp))
                     Text(
-                        text = if (query.isNotBlank()) "也可以搜索你留下的备注" else if (filter == "favorites") "点亮星星，下次就能直接找到" else "点亮爱心，让 AI 了解你的节奏偏好",
+                        text = if (state.query.isNotBlank()) "也可以搜索你留下的备注" else if (filter == "favorites") "点亮星星，下次就能直接找到" else "点亮爱心，让 AI 了解你的节奏偏好",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -216,19 +200,22 @@ fun PatternLibraryScreen(
                     p = p,
                     connected = connected,
                     playing = p.id == playingId,
+                    paused = paused,
                     progress = if (p.id == playingId) playbackProgress else null,
                     busy = p.id in busy,
                     onLike = { update(p.id, JSONObject().put("is_liked", !p.isLiked)) },
                     onFavorite = { update(p.id, JSONObject().put("is_favorite", !p.isFavorite)) },
                     onPlay = { play(p) },
-                    onDetail = { error = null; detailId = p.id },
+                    onStop = onStop,
+                    onDetail = { actionError = null; focusNote = false; detailId = p.id },
                     onDelete = { if (p.id != playingId) deleting = p },
+                    onEditNote = { actionError = null; focusNote = true; detailId = p.id },
                 )
             }
             if (patterns.size < total) item {
                 TextButton(
                     enabled = !loading,
-                    onClick = { scope.launch { load(true) } },
+                    onClick = { scope.launch { repo.refresh(more = true) } },
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Text("加载更多（${patterns.size} / $total）", style = MaterialTheme.typography.labelLarge)
@@ -244,14 +231,26 @@ fun PatternLibraryScreen(
             p = p,
             connected = connected,
             playing = p.id == playingId,
+            paused = paused,
             busy = p.id in busy,
             error = error,
             progress = if (p.id == playingId) playbackProgress else null,
-            onClose = { detailId = null; error = null; scope.launch { load() } },
+            focusNote = focusNote,
+            onClose = {
+                detailId = null
+                actionError = null
+                // Reconcile locally; closing a detail no longer reloads the list.
+                val f = repo.state.value.filter
+                val current = repo.state.value.patterns.find { it.id == p.id }
+                if (current != null && ((f == "liked" && !current.isLiked) || (f == "favorites" && !current.isFavorite))) {
+                    repo.removeLocal(p.id)
+                }
+            },
             onLike = { update(p.id, JSONObject().put("is_liked", !p.isLiked)) },
             onFavorite = { update(p.id, JSONObject().put("is_favorite", !p.isFavorite)) },
-            onSave = { note, saved -> update(p.id, JSONObject().put("description", note), saved) },
+            onSave = { changes, saved -> update(p.id, changes, saved) },
             onPlay = { play(p) },
+            onStop = onStop,
         )
     }
     deleting?.let { p ->
@@ -267,21 +266,19 @@ fun PatternLibraryScreen(
                         scope.launch {
                             val event = history.begin(OperationSource.PHONE, "删除云端波形")
                             try {
-                                api.delete(p.id)
+                                val index = repo.delete(p.id)
                                 history.update(event, OperationStatus.DONE)
-                                generation++; loading = false
-                                patterns = patterns.filterNot { it.id == p.id }; total = (total - 1).coerceAtLeast(0)
                                 deleting = null; undoId = p.id
                                 val id = p.id
                                 // UI offer is shorter than the server's six-second deadline.
                                 scope.launch { delay(5000); if (undoId == id) { undoId = null; snackbar.currentSnackbarData?.dismiss() } }
                                 if (snackbar.showSnackbar("已删除“${p.name}”", "撤销", duration = SnackbarDuration.Indefinite) == SnackbarResult.ActionPerformed && undoId == id) {
-                                    try { api.restore(id); undoId = null; load() }
+                                    try { repo.restore(id, index); undoId = null }
                                     catch (e: CancellationException) { throw e }
-                                    catch (e: Exception) { error = e.message ?: "无法撤销删除" }
+                                    catch (e: Exception) { actionError = e.message ?: "无法撤销删除" }
                                 }
                             } catch (e: CancellationException) { history.update(event, OperationStatus.INTERRUPTED); throw e }
-                            catch (e: Exception) { history.update(event, OperationStatus.FAILED); error = e.message ?: "删除失败"; deleting = null }
+                            catch (e: Exception) { history.update(event, OperationStatus.FAILED); actionError = e.message ?: "删除失败"; deleting = null }
                             finally { busy = busy - p.id }
                         }
                     },
@@ -438,8 +435,9 @@ internal fun PreferenceMarks(p: PatternDefinition, busy: Boolean, onLike: () -> 
 
 @Composable
 internal fun PatternCard(
-    p: PatternDefinition, connected: Boolean, playing: Boolean, progress: Float?, busy: Boolean,
-    onLike: () -> Unit, onFavorite: () -> Unit, onPlay: () -> Unit, onDetail: () -> Unit, onDelete: () -> Unit,
+    p: PatternDefinition, connected: Boolean, playing: Boolean, paused: Boolean, progress: Float?, busy: Boolean,
+    onLike: () -> Unit, onFavorite: () -> Unit, onPlay: () -> Unit, onStop: () -> Unit,
+    onDetail: () -> Unit, onDelete: () -> Unit, onEditNote: () -> Unit,
 ) {
     Surface(
         modifier = Modifier
@@ -477,18 +475,30 @@ internal fun PatternCard(
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Medium,
                 )
+                Text(
+                    text = " · ",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
                 if (p.description.isNotBlank()) {
                     Text(
-                        text = " · ",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                    Text(
                         text = p.description,
+                        modifier = Modifier
+                            .clickable(onClick = onEditNote)
+                            .testTag("note-${p.id}"),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
+                    )
+                } else {
+                    Text(
+                        text = "+ 添加备注",
+                        modifier = Modifier
+                            .clickable(onClick = onEditNote)
+                            .testTag("add-note-${p.id}"),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.primary,
                     )
                 }
             }
@@ -506,9 +516,14 @@ internal fun PatternCard(
                     contentPadding = PaddingValues(horizontal = 18.dp, vertical = 9.dp),
                     shape = RoundedCornerShape(14.dp),
                 ) {
-                    Icon(if (playing) Icons.Filled.Stop else Icons.Filled.PlayArrow, null, Modifier.size(18.dp))
+                    Icon(if (playing && !paused) Icons.Filled.Pause else Icons.Filled.PlayArrow, null, Modifier.size(18.dp))
                     Spacer(Modifier.width(6.dp))
-                    Text(if (playing) "停止" else "重放", style = MaterialTheme.typography.labelLarge)
+                    Text(if (playing) { if (paused) "继续" else "暂停" } else "重放", style = MaterialTheme.typography.labelLarge)
+                }
+                if (playing) {
+                    IconButton(onClick = onStop, modifier = Modifier.size(40.dp).testTag("stop-${p.id}")) {
+                        Icon(Icons.Filled.Stop, "停止重放", Modifier.size(20.dp), tint = MaterialTheme.colorScheme.error)
+                    }
                 }
                 Spacer(Modifier.weight(1f))
                 TextButton(
@@ -535,26 +550,42 @@ internal fun PatternCard(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun PatternDetailSheet(
-    p: PatternDefinition, connected: Boolean, playing: Boolean, busy: Boolean, error: String?, progress: Float?,
+    p: PatternDefinition, connected: Boolean, playing: Boolean, paused: Boolean, busy: Boolean, error: String?, progress: Float?,
+    focusNote: Boolean,
     onClose: () -> Unit, onLike: () -> Unit, onFavorite: () -> Unit,
-    onSave: (String, () -> Unit) -> Unit, onPlay: () -> Unit,
+    onSave: (JSONObject, () -> Unit) -> Unit, onPlay: () -> Unit, onStop: () -> Unit,
 ) {
     var note by remember(p.id) { mutableStateOf(p.description) }
     var savedNote by remember(p.id) { mutableStateOf(p.description) }
+    var draftRepeat by remember(p.id) { mutableIntStateOf(p.repeat) }
+    var savedRepeat by remember(p.id) { mutableIntStateOf(p.repeat) }
     var saved by remember(p.id) { mutableStateOf(false) }
     var unsaved by remember(p.id) { mutableStateOf(false) }
     var command by remember(p.id) { mutableStateOf(false) }
-    val dirty = note != savedNote
+    val maxRepeat = minOf(60, (600_000 / p.oneMs).toInt()).coerceAtLeast(1)
+    val noteDirty = note != savedNote
+    val repeatDirty = draftRepeat != savedRepeat
+    val dirty = noteDirty || repeatDirty
     val latestDirty by rememberUpdatedState(dirty)
     val latestBusy by rememberUpdatedState(busy)
+    val noteFocus = remember { FocusRequester() }
     val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true, confirmValueChange = { target ->
         if (target == SheetValue.Hidden && latestDirty) { unsaved = true; false } else !latestBusy
     })
     fun close() { if (dirty) unsaved = true else if (!busy) onClose() }
     fun save(closeAfter: Boolean = false) {
-        val value = note
-        onSave(value) { savedNote = value.trim(); note = savedNote; saved = true; unsaved = false; if (closeAfter) onClose() }
+        val changes = JSONObject()
+        if (noteDirty) changes.put("description", note)
+        if (repeatDirty) changes.put("repeat", draftRepeat)
+        if (changes.length() == 0) { if (closeAfter) onClose(); return }
+        onSave(changes) {
+            savedNote = note.trim(); note = savedNote
+            savedRepeat = draftRepeat
+            saved = true; unsaved = false
+            if (closeAfter) onClose()
+        }
     }
+    LaunchedEffect(focusNote) { if (focusNote) runCatching { noteFocus.requestFocus() } }
     ModalBottomSheet(
         onDismissRequest = { close() },
         sheetState = sheet,
@@ -588,8 +619,50 @@ private fun PatternDetailSheet(
                 style = MaterialTheme.typography.bodyMedium,
             )
             Spacer(Modifier.height(16.dp))
-            WaveformPreview(p, command, progress)
+            WaveformPreview(p.copy(repeat = if (p.builtin) p.repeat else draftRepeat), command, progress)
             Spacer(Modifier.height(22.dp))
+            if (!p.builtin) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("循环轮数", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.weight(1f))
+                    IconButton(
+                        onClick = { if (draftRepeat > 1) { draftRepeat--; saved = false } },
+                        enabled = draftRepeat > 1,
+                        modifier = Modifier.testTag("repeat-minus"),
+                    ) {
+                        Icon(Icons.Outlined.Remove, "减少轮数")
+                    }
+                    Text("$draftRepeat", modifier = Modifier.testTag("repeat-value"), style = MaterialTheme.typography.titleMedium)
+                    IconButton(
+                        onClick = { if (draftRepeat < maxRepeat) { draftRepeat++; saved = false } },
+                        enabled = draftRepeat < maxRepeat,
+                        modifier = Modifier.testTag("repeat-plus"),
+                    ) {
+                        Icon(Icons.Outlined.Add, "增加轮数")
+                    }
+                    TextButton(
+                        onClick = {
+                            onSave(JSONObject().put("repeat", draftRepeat)) {
+                                savedRepeat = draftRepeat; saved = true
+                            }
+                        },
+                        enabled = repeatDirty && !busy,
+                        modifier = Modifier.testTag("save-repeat"),
+                    ) {
+                        Text("保存", style = MaterialTheme.typography.labelLarge)
+                    }
+                }
+                Text(
+                    text = "${secondsLabel(p.oneMs)}秒 × $draftRepeat = ${secondsLabel(p.oneMs * draftRepeat)}秒",
+                    modifier = Modifier.testTag("repeat-summary"),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (draftRepeat == maxRepeat && maxRepeat < 60) {
+                    Text("已达 10 分钟上限", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Spacer(Modifier.height(16.dp))
+            }
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text("波形备注", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.weight(1f))
@@ -607,6 +680,7 @@ private fun PatternDetailSheet(
                         onValueChange = { note = it.take(120); saved = false },
                         modifier = Modifier
                             .fillMaxWidth()
+                            .focusRequester(noteFocus)
                             .testTag("wave-note"),
                         placeholder = {
                             Text(
@@ -633,7 +707,15 @@ private fun PatternDetailSheet(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         if (saved) Text("已保存", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium)
-                        IconButton(onClick = { save() }, enabled = dirty && !busy, modifier = Modifier.testTag("save-note")) {
+                        IconButton(
+                            onClick = {
+                                onSave(JSONObject().put("description", note)) {
+                                    savedNote = note.trim(); note = savedNote; saved = true; unsaved = false
+                                }
+                            },
+                            enabled = noteDirty && !busy,
+                            modifier = Modifier.testTag("save-note"),
+                        ) {
                             Icon(Icons.Outlined.Save, "保存备注", Modifier.size(20.dp))
                         }
                     }
@@ -695,20 +777,28 @@ private fun PatternDetailSheet(
             if (!connected && !playing) {
                 Text("设备未连接，暂不能重放。", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 12.dp))
             }
-            Button(
-                onClick = onPlay,
-                enabled = playing || (connected && !busy),
-                modifier = Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 24.dp),
-                shape = RoundedCornerShape(16.dp),
-            ) {
-                Text(if (playing) "停止" else "重放", style = MaterialTheme.typography.labelLarge)
+            Row(Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 24.dp), verticalAlignment = Alignment.CenterVertically) {
+                Button(
+                    onClick = onPlay,
+                    enabled = playing || (connected && !busy),
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(16.dp),
+                ) {
+                    Text(if (playing) { if (paused) "继续播放" else "暂停" } else "重放", style = MaterialTheme.typography.labelLarge)
+                }
+                if (playing) {
+                    Spacer(Modifier.width(10.dp))
+                    OutlinedButton(onClick = onStop, modifier = Modifier.testTag("detail-stop"), shape = RoundedCornerShape(16.dp)) {
+                        Text("停止", style = MaterialTheme.typography.labelLarge)
+                    }
+                }
             }
         }
     }
     if (unsaved) AlertDialog(
         onDismissRequest = { if (!busy) unsaved = false },
         title = { Text("未保存", style = MaterialTheme.typography.titleLarge) },
-        text = { Text("备注还有未保存的修改。", style = MaterialTheme.typography.bodyMedium) },
+        text = { Text("还有未保存的修改。", style = MaterialTheme.typography.bodyMedium) },
         confirmButton = {
             TextButton(enabled = !busy, onClick = { save(closeAfter = true) }) {
                 Text("保存并关闭", style = MaterialTheme.typography.labelLarge)
@@ -719,7 +809,7 @@ private fun PatternDetailSheet(
                 TextButton(enabled = !busy, onClick = { unsaved = false }) {
                     Text("继续编辑", style = MaterialTheme.typography.labelLarge)
                 }
-                TextButton(enabled = !busy, onClick = { note = savedNote; unsaved = false; onClose() }) {
+                TextButton(enabled = !busy, onClick = { note = savedNote; draftRepeat = savedRepeat; unsaved = false; onClose() }) {
                     Text("放弃修改", style = MaterialTheme.typography.labelLarge)
                 }
             }

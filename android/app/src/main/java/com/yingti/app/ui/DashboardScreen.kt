@@ -14,6 +14,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.outlined.Bluetooth
 import androidx.compose.material.icons.outlined.Cloud
@@ -34,7 +36,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.testTag
 import com.yingti.app.BridgeState
+import com.yingti.app.ToyControl
 import kotlin.math.roundToInt
 
 private enum class SuctionPanel { TOY, FREE }
@@ -161,10 +165,24 @@ fun DashboardScreen(
                             Modifier
                                 .size(44.dp)
                                 .background(Color(0xFFB3261E), CircleShape)
-                                .clickable(onClick = onStop),
+                                .clickable(onClick = onStop)
+                                .testTag("toy-pause-toggle"),
                             contentAlignment = Alignment.Center,
                         ) {
-                            Icon(Icons.Filled.Stop, "STOP ALL", tint = Color.White, modifier = Modifier.size(24.dp))
+                            Icon(
+                                imageVector = when (state.toyControl) {
+                                    ToyControl.RUNNING -> Icons.Filled.Pause
+                                    ToyControl.PAUSED -> Icons.Filled.PlayArrow
+                                    ToyControl.IDLE -> Icons.Filled.Stop
+                                },
+                                contentDescription = when (state.toyControl) {
+                                    ToyControl.RUNNING -> "暂停全部输出"
+                                    ToyControl.PAUSED -> "继续播放"
+                                    ToyControl.IDLE -> "STOP ALL"
+                                },
+                                tint = Color.White,
+                                modifier = Modifier.size(24.dp),
+                            )
                         }
                     }
                     Spacer(Modifier.height(8.dp))

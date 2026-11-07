@@ -17,10 +17,12 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.AlertDialog
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.yingti.app.auth.AccountSession
 import com.yingti.app.auth.ApiClient
@@ -81,6 +83,9 @@ class MainActivity : ComponentActivity() {
                 var aiWelcome by remember { mutableStateOf(false) }
                 var aiAccessDone by remember { mutableStateOf(UiPrefs.aiAccessDone(context)) }
                 var onboardingDismissed by remember { mutableStateOf(UiPrefs.onboardingDismissed(context)) }
+                var overlayEnabled by remember { mutableStateOf(UiPrefs.overlayEnabled(context)) }
+                var overlayPermitted by remember { mutableStateOf(android.provider.Settings.canDrawOverlays(context)) }
+                var overlayPromptDismissed by remember { mutableStateOf(UiPrefs.overlayPromptDismissed(context)) }
                 val toyFlow = remember { AppState.state.map { it.bleStatus == "已连接" }.distinctUntilChanged() }
                 val toyConnected by toyFlow.collectAsStateWithLifecycle(initialValue = false)
                 val accountSession = remember { AccountSession(app.apiClient, app.tokenStore) }
@@ -172,6 +177,30 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
+                LaunchedEffect(configured, connectionConfig) {
+                    if (configured) {
+                        app.patternLibrary.bind(connectionConfig)
+                        app.patternLibrary.ensureLoaded()
+                    } else app.patternLibrary.clear()
+                }
+
+                LifecycleResumeEffect(serviceRunning) {
+                    overlayPermitted = android.provider.Settings.canDrawOverlays(context)
+                    if (serviceRunning) RelayService.send(context, RelayService.ACTION_OVERLAY_REFRESH)
+                    onPauseOrDispose { }
+                }
+
+                fun requestOverlayPermission() {
+                    runCatching {
+                        context.startActivity(
+                            Intent(
+                                android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                android.net.Uri.parse("package:${context.packageName}"),
+                            )
+                        )
+                    }
+                }
+
                 fun logout() {
                     RelayService.send(context, RelayService.ACTION_SHUTDOWN)
                     app.tokenStore.clearSession()
@@ -199,7 +228,7 @@ class MainActivity : ComponentActivity() {
                                     },
                                     onScan = { RelayService.send(context, RelayService.ACTION_SCAN) },
                                     onVibrate = { RelayService.send(context, RelayService.ACTION_VIBRATE, it) },
-                                    onStop = { RelayService.send(context, RelayService.ACTION_STOP_ALL) },
+                                    onStop = { RelayService.send(context, RelayService.ACTION_TOGGLE_PAUSE) },
                                     onRawFrame = { RelayService.sendRaw(context, it) },
                                     onSuction = { intensity, mode ->
                                         RelayService.send(context, RelayService.ACTION_SUCTION, intensity, mode)
@@ -240,6 +269,10 @@ class MainActivity : ComponentActivity() {
                                     onStop = { RelayService.send(context, RelayService.ACTION_STOP_ALL) },
                                     playingId = playback?.id,
                                     playbackProgress = progress,
+                                    repository = app.patternLibrary,
+                                    paused = playback?.paused == true,
+                                    onPause = { RelayService.send(context, RelayService.ACTION_PAUSE) },
+                                    onResume = { RelayService.send(context, RelayService.ACTION_RESUME) },
                                 )
                             }
                             AppScreen.LOGS -> {
@@ -277,6 +310,14 @@ class MainActivity : ComponentActivity() {
                                             devMode = it
                                             UiPrefs.setDevMode(context, it)
                                         },
+                                        overlayEnabled = overlayEnabled,
+                                        overlayPermitted = overlayPermitted,
+                                        onOverlayChange = {
+                                            overlayEnabled = it
+                                            UiPrefs.setOverlayEnabled(context, it)
+                                            if (serviceRunning) RelayService.send(context, RelayService.ACTION_OVERLAY_REFRESH)
+                                        },
+                                        onRequestOverlayPermission = ::requestOverlayPermission,
                                         onCancel = {
                                             connectionStatus = null
                                             connectionError = null
@@ -333,6 +374,30 @@ class MainActivity : ComponentActivity() {
                                 onCopy = ::copyToClipboard,
                             )
                         }
+                    }
+
+                    if (!splashVisible && configured && overlayEnabled && !overlayPermitted && !overlayPromptDismissed) {
+                        AlertDialog(
+                            onDismissRequest = {
+                                overlayPromptDismissed = true
+                                UiPrefs.setOverlayPromptDismissed(context, true)
+                            },
+                            title = { androidx.compose.material3.Text("开启悬浮球") },
+                            text = { androidx.compose.material3.Text("悬浮球让你在任何界面都能一键暂停 / 继续玩具。需要授予“显示在其他应用上层”权限。") },
+                            confirmButton = {
+                                androidx.compose.material3.TextButton(onClick = {
+                                    overlayPromptDismissed = true
+                                    UiPrefs.setOverlayPromptDismissed(context, true)
+                                    requestOverlayPermission()
+                                }) { androidx.compose.material3.Text("去开启") }
+                            },
+                            dismissButton = {
+                                androidx.compose.material3.TextButton(onClick = {
+                                    overlayPromptDismissed = true
+                                    UiPrefs.setOverlayPromptDismissed(context, true)
+                                }) { androidx.compose.material3.Text("暂不") }
+                            },
+                        )
                     }
 
                     // 开屏启动过渡动画：顺时针舒展绽放，约 650ms 展开就绪后平滑淡出，消除白屏且不拖延加载

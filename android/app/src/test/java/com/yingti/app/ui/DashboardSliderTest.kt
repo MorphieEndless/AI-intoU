@@ -5,15 +5,21 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
+import androidx.compose.ui.test.*
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.click
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipe
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import com.yingti.app.BridgeState
+import com.yingti.app.PausedOutput
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -94,6 +100,33 @@ class DashboardSliderTest {
         showDashboard(mode = 1)
         tapLevel(3)
         compose.runOnIdle { assertCommands(listOf(0.6 to 1)) }
+    }
+
+    @Test
+    fun stopButtonIconFollowsToyControl() {
+        var bridge by mutableStateOf(BridgeState())
+        compose.setContent {
+            MaterialTheme {
+                DashboardScreen(
+                    state = bridge,
+                    server = "",
+                    darkTheme = false,
+                    devMode = false,
+                    onToggleTheme = {},
+                    onScan = {},
+                    onVibrate = {},
+                    onStop = {},
+                    onSettings = {},
+                    onLogout = {},
+                    onSuction = { _, _ -> },
+                )
+            }
+        }
+        compose.onNodeWithContentDescription("STOP ALL").assertExists()
+        bridge = BridgeState(intensity = 3)
+        compose.onNodeWithContentDescription("暂停全部输出").assertExists()
+        bridge = BridgeState(pausedOutput = PausedOutput(3, 0, 5))
+        compose.onNodeWithContentDescription("继续播放").assertExists()
     }
 
     @Test

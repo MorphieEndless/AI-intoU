@@ -68,7 +68,10 @@ async def get_pattern(request: Request, pattern_id: str):
 @router.patch("/{pattern_id}", response_model=StoredPattern)
 async def patch_pattern(request: Request, pattern_id: str, patch: MetadataPatch):
     uid, _ = await find(request, pattern_id)
-    p = pattern_store.update_metadata(uid, pattern_id, patch.model_dump(exclude_unset=True))
+    try:
+        p = pattern_store.update_metadata(uid, pattern_id, patch.model_dump(exclude_unset=True))
+    except ValueError as exc:
+        raise HTTPException(409 if pattern_id == BUILTIN_ID else 422, str(exc)) from exc
     if p is None:
         raise HTTPException(404, "Pattern not found")
     return response(p)

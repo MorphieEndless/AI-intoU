@@ -56,6 +56,43 @@ def test_patch_is_partial_strict_and_id_scoped(library):
     assert client.patch(f"/patterns/{p.id}", json={"is_liked": True}).status_code == 401
 
 
+def test_patch_repeat_updates_definition_and_enforces_limits(library):
+    store, client, headers = library
+    p = store.create("alice", "三十秒", [{"duration_ms": 30000, "vibrate": .3}], repeat=5)
+    r = client.patch(f"/patterns/{p.id}", headers=headers, json={"repeat": 10})
+    assert r.status_code == 200
+    assert r.json()["repeat"] == 10
+    assert r.json()["updated_at"] > p.updated_at
+    entry = [x for x in client.get("/patterns?include_steps=true", headers=headers).json()["patterns"] if x["id"] == p.id][0]
+    assert entry["repeat"] == 10 and entry["total_ms"] == 300000
+    assert client.get(f"/patterns/{p.id}", headers=headers).json()["repeat"] == 10
+    assert store.get("alice", p.id).repeat == 10
+    assert store.get("alice", p.id).steps == p.steps
+
+    assert client.patch(f"/patterns/{p.id}", headers=headers, json={"repeat": 20}).status_code == 200
+    assert client.patch(f"/patterns/{p.id}", headers=headers, json={"repeat": 21}).status_code == 422
+    assert store.get("alice", p.id).repeat == 20
+
+    for body in [{"repeat": 0}, {"repeat": 61}, {"repeat": "10"}, {"repeat": True}, {"repeat": 10.5}, {"repeat": None}]:
+        assert client.patch(f"/patterns/{p.id}", headers=headers, json=body).status_code == 422
+
+    assert client.patch(f"/patterns/{p.id}", headers=headers, json={"description": "新备注", "repeat": 21}).status_code == 422
+    assert store.get("alice", p.id).description == p.description
+    r = client.patch(f"/patterns/{p.id}", headers=headers, json={"description": "新备注", "repeat": 3})
+    assert r.status_code == 200
+    assert r.json()["description"] == "新备注" and r.json()["repeat"] == 3
+
+    assert client.patch("/patterns/builtin-wave", headers=headers, json={"repeat": 2}).status_code == 409
+    assert client.patch("/patterns/builtin-wave", headers=headers, json={"description": "x"}).status_code == 200
+    assert store.get("alice", "builtin-wave").repeat == 1
+
+    other = {"Authorization": "Bearer " + phone_token_for("bob")}
+    assert client.patch(f"/patterns/{p.id}", headers=other, json={"repeat": 2}).status_code == 404
+
+    with pytest.raises(ValueError):
+        store.update_metadata("alice", "builtin-wave", {"repeat": 2})
+
+
 def test_filters_precede_pagination_and_search_notes(library):
     store, client, headers = library
     for i in range(4):
