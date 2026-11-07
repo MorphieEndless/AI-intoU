@@ -13,6 +13,11 @@ import com.yingti.app.history.ActivityStore
 import com.yingti.app.patterns.*
 import org.json.JSONObject
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
@@ -198,6 +203,38 @@ class PatternLibraryScreenTest {
         compose.waitForIdle()
         compose.onNodeWithTag("card-builtin-wave").assertExists()
         compose.runOnIdle { assertEquals(1, api.listCalls) }
+    }
+    @Test fun enteringDuringStartupLoadDoesNotRestartIt() {
+        val cfg = ConnectionConfig("https://example.com", token = "offline-test-only")
+        val repo = PatternLibraryRepository({ api })
+        api.holdList = true
+        repo.bind(cfg)
+        CoroutineScope(SupervisorJob() + Dispatchers.Main).launch { repo.ensureLoaded() } // Simulates MainActivity's preload.
+        compose.waitUntil(10000) { api.listStarted }
+        compose.setContent { YingtiTheme {
+            PatternLibraryScreen(cfg, true, ActivityStore(RuntimeEnvironment.getApplication()), { played += it }, repository = repo)
+        } }
+        compose.waitForIdle()
+        compose.runOnIdle { assertEquals(1, api.listCalls) }
+        api.releaseList.complete(Unit)
+        compose.waitUntil(10000) { compose.onAllNodesWithTag("card-builtin-wave").fetchSemanticsNodes().isNotEmpty() }
+        compose.runOnIdle { assertEquals(1, api.listCalls) }
+    }
+    @Test fun cachedLibraryRendersBeforeNetworkReturns() {
+        val dir = File(RuntimeEnvironment.getApplication().filesDir, "test_pattern_cache").apply { deleteRecursively(); mkdirs() }
+        val cfg = ConnectionConfig("https://example.com", token = "offline-test-only")
+        val repo1 = PatternLibraryRepository({ api }, cacheDir = dir,
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.IO), background = Dispatchers.IO)
+        runBlocking { repo1.bind(cfg); repo1.ensureLoaded() }
+        compose.waitUntil(10000) { dir.listFiles()?.any { it.extension == "json" } == true }
+        api.holdList = true
+        val repo2 = PatternLibraryRepository({ api }, cacheDir = dir)
+        compose.setContent { YingtiTheme {
+            PatternLibraryScreen(cfg, true, ActivityStore(RuntimeEnvironment.getApplication()), { played += it }, repository = repo2)
+        } }
+        compose.waitUntil(10000) { compose.onAllNodesWithTag("card-builtin-wave").fetchSemanticsNodes().isNotEmpty() }
+        compose.runOnIdle { assertEquals(2, api.listCalls) } // Cached card shown while the revalidation is still held.
+        api.releaseList.complete(Unit)
     }
     @Test fun addNoteEntryOpensDetailWithNoteField() {
         show()

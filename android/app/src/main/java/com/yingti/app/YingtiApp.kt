@@ -10,6 +10,7 @@ import kotlinx.coroutines.*
 import okhttp3.OkHttpClient
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import java.io.File
 
 class YingtiApp : Application() {
     lateinit var tokenStore: TokenStore
@@ -40,7 +41,7 @@ class YingtiApp : Application() {
                 httpClient = ApiClient.defaultClient()
                 apiClient = ApiClient(httpClient)
                 history = ActivityStore(this@YingtiApp)
-                patternLibrary = PatternLibraryRepository({ PatternApi(it, httpClient) })
+                patternLibrary = PatternLibraryRepository({ PatternApi(it, httpClient) }, cacheDir = File(filesDir, "pattern_cache"))
                 initialization.complete(Unit)
                 mutableReady.value = true
             } catch (e: Exception) {

@@ -74,6 +74,20 @@ class PatternApiTest {
             assertEquals("/patterns/abc123456789/restore", request.path)
         } finally { server.shutdown() }
     }
+    @Test fun listCapturesEtagAndSendsItOnlyWhenProvided() = runBlocking {
+        val server = MockWebServer(); server.start()
+        try {
+            server.enqueue(MockResponse().setHeader("ETag", "\"abc\"").setBody("""{"patterns":[],"total":0}"""))
+            val api = PatternApi(ConnectionConfig(server.url("/").toString(), token = "test-only-token"))
+            val page = api.list()
+            assertEquals("\"abc\"", page.etag)
+            assertNull(server.takeRequest().getHeader("If-None-Match"))
+            server.enqueue(MockResponse().setResponseCode(304))
+            val again = api.listIfChanged(0, "all", "", "\"abc\"")
+            assertTrue(again.notModified)
+            assertEquals("\"abc\"", server.takeRequest().getHeader("If-None-Match"))
+        } finally { server.shutdown() }
+    }
     @Test fun unauthorizedFailsWithoutExposingServerBody() = runBlocking {
         val server = MockWebServer()
         server.start()

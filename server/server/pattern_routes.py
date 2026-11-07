@@ -1,8 +1,10 @@
 """Authenticated, exact-ID library API. No metadata route controls hardware."""
+import hashlib
+import json
 import re
 from typing import Literal
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from app.schemas.patterns import (
     BUILTIN_ID, MetadataPatch, PatternPage, PatternSummary, StoredPattern, DeleteResult,
 )
@@ -27,6 +29,18 @@ def response(model):
     return JSONResponse(model.model_dump(exclude_none=True), headers={"Cache-Control": "no-store"})
 
 
+def list_etag(body: bytes, *params) -> str:
+    digest = hashlib.sha256(json.dumps(params, ensure_ascii=False).encode() + b"\n" + body).hexdigest()[:32]
+    return f'"{digest}"'
+
+
+def etag_matches(header: str | None, etag: str) -> bool:
+    if not header:
+        return False
+    tags = {t.strip().removeprefix("W/") for t in header.split(",")}   # CDNs may weaken tags when compressing
+    return "*" in tags or etag in tags
+
+
 @router.get("", response_model=PatternPage)
 async def list_patterns(request: Request, offset: int = 0, limit: int = 30,
     filter: Literal["all", "liked", "favorites"] = "all", q: str = "", include_steps: bool = False):
@@ -42,7 +56,12 @@ async def list_patterns(request: Request, offset: int = 0, limit: int = 30,
         values = p.model_dump(exclude={"steps"})
         result.append(PatternSummary(**values, step_count=len(p.steps), total_ms=p.total_ms(),
             steps=p.steps if include_steps else None))
-    return response(PatternPage(patterns=result, total=len(patterns)))
+    res = response(PatternPage(patterns=result, total=len(patterns)))
+    etag = list_etag(res.body, filter, q, include_steps, offset, limit)
+    if etag_matches(request.headers.get("if-none-match"), etag):
+        return Response(status_code=304, headers={"ETag": etag, "Cache-Control": "no-store"})
+    res.headers["ETag"] = etag
+    return res
 
 
 def validate_id(pattern_id):

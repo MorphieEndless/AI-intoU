@@ -41,6 +41,24 @@ class WaveformGeometryTest {
             assertTrue(s.c1.value in low..high && s.c2.value in low..high)
         }
     }
+    @Test fun curveIsCachedByKeyAndMatchesFlattenedSegments() {
+        val p = waveform()
+        val a = WaveformGeometry.curve(p, "vibrate")
+        assertSame(a, WaveformGeometry.curve(p, "vibrate"))
+        assertNotSame(a, WaveformGeometry.curve(p.copy(repeat = 3), "vibrate"))
+        val segs = WaveformGeometry.segments(WaveformGeometry.points(p, "vibrate"))
+        assertEquals(2 + 6 * segs.size, a.size)
+        assertEquals(segs.first().start.ms.toFloat(), a[0], 1e-4f)
+        assertEquals(segs.first().start.value.toFloat(), a[1], 1e-4f)
+        segs.forEachIndexed { i, s ->
+            val o = 2 + 6 * i
+            assertEquals(s.c1.ms.toFloat(), a[o], 1e-4f); assertEquals(s.c1.value.toFloat(), a[o + 1], 1e-4f)
+            assertEquals(s.c2.ms.toFloat(), a[o + 2], 1e-4f); assertEquals(s.c2.value.toFloat(), a[o + 3], 1e-4f)
+            assertEquals(s.end.ms.toFloat(), a[o + 4], 1e-4f); assertEquals(s.end.value.toFloat(), a[o + 5], 1e-4f)
+        }
+        WaveformGeometry.prewarm(listOf(p))
+        assertSame(a, WaveformGeometry.curve(p, "vibrate"))
+    }
     @Test fun ticksDoNotOverlapFinalLabel() {
         assertEquals(listOf(0.0, 5.0, 10.0, 15.0, 20.0, 24.0), WaveformGeometry.ticks(24000))
         assertEquals(listOf(0.0, .1), WaveformGeometry.ticks(100))
