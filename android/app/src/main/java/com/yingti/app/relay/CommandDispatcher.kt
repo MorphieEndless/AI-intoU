@@ -1,33 +1,93 @@
 package com.yingti.app.relay
 
 import com.yingti.app.AppState
+import com.yingti.app.PausedOutput
+import com.yingti.app.ToyControl
 import com.yingti.app.patterns.PatternPlayback
 import com.yingti.app.history.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import com.yingti.app.ble.BleController
 import com.yingti.app.ble.SvakomProtocol
+import com.yingti.app.ble.ToyOutput
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import org.json.JSONArray
 import org.json.JSONObject
 import kotlin.math.roundToInt
 import kotlin.math.sin
 
 class CommandDispatcher(
-    private val ble: BleController,
+    private val ble: ToyOutput,
     private val scope: CoroutineScope,
     private val history: ActivityStore,
+    private val nanoTime: () -> Long = System::nanoTime,
 ) : RelayCommands {
     override suspend fun dispatch(command: JSONObject): JSONObject = dispatch(command, OperationSource.AI)
 
     private var activeJob: Job? = null
     private var timedStop: Job? = null
+    private var timedChannel: String? = null
+    private var timedMode: Int? = null
+    private var timedDeadline = 0L
+    private var pausedTimer: PausedTimer? = null
+    private var gate: PauseGate? = null
 
     private val commandMutex = Mutex()
+    private val outputMutex = Mutex()
+
+    /** Pausing freezes one pattern job's timeline without cancelling it. */
+    private inner class PauseGate {
+        val paused = MutableStateFlow(false)
+        var reapply: (suspend () -> Unit)? = null
+        private var pausedSince = 0L
+        private var pausedTotal = 0L
+        private var wasPaused = false
+
+        private fun reconcile(now: Long) {
+            if (paused.value && !wasPaused) pausedSince = now
+            if (!paused.value && wasPaused) pausedTotal += now - pausedSince
+            wasPaused = paused.value
+        }
+
+        fun activeNanosSince(start: Long): Long {
+            val now = nanoTime()
+            reconcile(now)
+            return now - start - pausedTotal - (if (wasPaused) now - pausedSince else 0)
+        }
+
+        suspend fun write(block: suspend () -> Unit) = outputMutex.withLock { if (!paused.value) block() }
+
+        suspend fun delay(ms: Long) {
+            var remainingNanos = if (ms == Long.MAX_VALUE) Long.MAX_VALUE else ms * 1_000_000L
+            while (true) {
+                reconcile(nanoTime())
+                if (paused.value) {
+                    paused.first { !it }
+                    outputMutex.withLock { if (!paused.value) reapply?.invoke() }
+                    continue
+                }
+                if (remainingNanos == Long.MAX_VALUE) {
+                    paused.first { it } // Forever wait only observes pause/resume.
+                    continue
+                }
+                val start = nanoTime()
+                val interrupted = withTimeoutOrNull((remainingNanos + 999_999) / 1_000_000) { paused.first { it } } != null
+                if (!interrupted) return
+                remainingNanos = (remainingNanos - (nanoTime() - start)).coerceAtLeast(0)
+            }
+        }
+    }
+
+    private data class PausedTimer(val channel: String, val mode: Int?, val remainingNanos: Long)
 
     suspend fun dispatch(command: JSONObject, source: OperationSource): JSONObject = commandMutex.withLock {
         val type = command.optString("type")
         val requestId = command.optString("request_id").takeIf { it.isNotBlank() }
+        if (type in setOf("command", "pattern", "custom_pattern", "stop", "raw")) {
+            pausedTimer = null
+            AppState.update { it.copy(pausedOutput = null) }
+        }
         // Only store whitelisted labels and numbers, never raw JSON, server errors or tokens.
         val label = when (type) {
             "command" -> when (command.optString("action")) {
@@ -68,6 +128,83 @@ class CommandDispatcher(
         result
     }
 
+    suspend fun pause(source: OperationSource = OperationSource.PHONE): JSONObject = commandMutex.withLock {
+        val event = history.begin(source, "暂停输出")
+        val result = pauseLocked(null)
+        history.update(event, if (result.optBoolean("success")) OperationStatus.SENT else OperationStatus.FAILED)
+        result
+    }
+
+    suspend fun resume(source: OperationSource = OperationSource.PHONE): JSONObject = commandMutex.withLock {
+        val event = history.begin(source, "继续输出")
+        val result = resumeLocked(null)
+        history.update(event, if (result.optBoolean("success")) OperationStatus.SENT else OperationStatus.FAILED)
+        result
+    }
+
+    suspend fun togglePause(source: OperationSource = OperationSource.PHONE): JSONObject =
+        when (AppState.state.value.toyControl) {
+            ToyControl.PAUSED -> resume(source)
+            ToyControl.RUNNING -> pause(source)
+            ToyControl.IDLE -> dispatch(JSONObject().put("type", "stop"), source)
+        }
+
+    private suspend fun pauseLocked(requestId: String?): JSONObject {
+        val g = gate
+        if (g != null && activeJob?.isActive == true) {
+            g.paused.value = true
+            outputMutex.withLock { ble.stopAll() }
+            AppState.update { state ->
+                state.patternPlayback?.let { state.copy(patternPlayback = it.pausedAt(nanoTime())) } ?: state
+            }
+            return ack(true, "已暂停，点按继续从断点播放", requestId)
+        }
+        val current = AppState.state.value
+        if (current.intensity > 0 || current.suctionIntensity > 0) {
+            val snapshot = PausedOutput(current.intensity, current.suctionIntensity, current.suctionMode)
+            timedStop?.takeIf { it.isActive && timedDeadline > 0 }?.let { job ->
+                val remaining = (timedDeadline - nanoTime()).coerceAtLeast(0)
+                job.cancelAndJoin()
+                timedStop = null
+                pausedTimer = PausedTimer(timedChannel ?: "vibrate", timedMode, remaining)
+            }
+            ble.stopAll()
+            AppState.update { it.copy(pausedOutput = snapshot) }
+            return ack(true, "已暂停，点按继续恢复档位", requestId)
+        }
+        return ack(false, "当前没有正在运行的输出", requestId)
+    }
+
+    private suspend fun resumeLocked(requestId: String?): JSONObject {
+        if (!ble.isConnected) return ack(false, "设备未连接", requestId)
+        val g = gate
+        if (g != null && g.paused.value && activeJob?.isActive == true) {
+            AppState.update { state ->
+                state.patternPlayback?.let { state.copy(patternPlayback = it.resumedAt(nanoTime())) } ?: state
+            }
+            g.paused.value = false
+            return ack(true, "已继续", requestId)
+        }
+        val paused = AppState.state.value.pausedOutput
+        if (paused != null) {
+            if (paused.vibrateLevel > 0 && ble.setVibration(paused.vibrateLevel / 10.0).isFailure) {
+                return ack(false, "恢复输出失败，请检查蓝牙连接", requestId)
+            }
+            if (paused.suctionLevel > 0 && ble.setSuction(paused.suctionLevel / 5.0, paused.suctionMode).isFailure) {
+                return ack(false, "恢复输出失败，请检查蓝牙连接", requestId)
+            }
+            AppState.update { it.copy(pausedOutput = null) }
+            pausedTimer?.let { timer ->
+                pausedTimer = null
+                outputWriter(timer.channel, timer.mode)?.let { writer ->
+                    if (timer.remainingNanos > 0) armTimedStop(writer, timer.remainingNanos / 1_000_000)
+                }
+            }
+            return ack(true, "已继续", requestId)
+        }
+        return ack(false, "当前没有已暂停的输出", requestId)
+    }
+
     private fun safeLevel(command: JSONObject, steps: Int): Int {
         val value = command.optDouble("intensity", 0.0)
         return if (value.isFinite()) (value.coerceIn(0.0, 1.0) * steps).roundToInt() else 0
@@ -86,23 +223,28 @@ class CommandDispatcher(
         }
     }
 
-    private fun launchPattern(event: String, cleanup: suspend () -> Unit, patternId: String? = null, totalMs: Long = 0, block: suspend () -> Unit): Job = scope.launch {
-        AppState.update { it.copy(patternPlayback = if (totalMs > 0) PatternPlayback(patternId, event, System.nanoTime(), totalMs) else null) }
-        history.update(event, OperationStatus.RUNNING)
-        var status = OperationStatus.DONE
-        try { block() }
-        catch (e: CancellationException) { status = OperationStatus.CANCELLED; throw e }
-        catch (_: Exception) {
-            status = OperationStatus.FAILED
-            AppState.update { it.copy(error = "波形执行失败，请检查蓝牙连接") }
-        } finally {
-            withContext(NonCancellable) {
-                try { cleanup() } catch (_: Exception) { status = OperationStatus.FAILED }
+    private fun launchPattern(event: String, cleanup: suspend () -> Unit, patternId: String? = null, totalMs: Long = 0, block: suspend (PauseGate) -> Unit): Job {
+        val thisGate = PauseGate()
+        gate = thisGate
+        return scope.launch {
+            AppState.update { it.copy(patternPlayback = PatternPlayback(patternId, event, nanoTime(), totalMs)) }
+            history.update(event, OperationStatus.RUNNING)
+            var status = OperationStatus.DONE
+            try { block(thisGate) }
+            catch (e: CancellationException) { status = OperationStatus.CANCELLED; throw e }
+            catch (_: Exception) {
+                status = OperationStatus.FAILED
+                AppState.update { it.copy(error = "波形执行失败，请检查蓝牙连接") }
+            } finally {
+                withContext(NonCancellable) {
+                    try { cleanup() } catch (_: Exception) { status = OperationStatus.FAILED }
+                }
+                if (gate === thisGate) gate = null
+                AppState.update { state ->
+                    if (state.patternPlayback?.event == event) state.copy(patternPlayback = null) else state
+                }
+                history.update(event, status)
             }
-            AppState.update { state ->
-                if (state.patternPlayback?.event == event) state.copy(patternPlayback = null) else state
-            }
-            history.update(event, status)
         }
     }
 
@@ -123,11 +265,11 @@ class CommandDispatcher(
         val steps = if (action == "constrict") SvakomProtocol.SUCTION_STEPS else 10
         val applied = level.toDouble() / steps
 
-        if (duration > 0) timedStop = scope.launch {
-            delay((duration * 1000).toLong())
-            val stopped = writer(0.0)
-            val stopEvent = history.begin(OperationSource.SYSTEM, "定时停止")
-            history.update(stopEvent, if (stopped.isSuccess) OperationStatus.SENT else OperationStatus.FAILED)
+        if (duration > 0) {
+            timedChannel = action
+            timedMode = mode
+            timedDeadline = nanoTime() + (duration * 1_000_000_000).toLong()
+            armTimedStop(writer, (duration * 1000).toLong())
         }
         val modeText = mode?.let { ", mode $it" } ?: ""
         return ack(
@@ -135,6 +277,15 @@ class CommandDispatcher(
             "Set $action level $level/$steps$modeText (requested $intensity, applied $applied) on yingti",
             requestId,
         )
+    }
+
+    private fun armTimedStop(writer: suspend (Double) -> Result<Int>, delayMs: Long) {
+        timedStop = scope.launch {
+            delay(delayMs)
+            val stopped = writer(0.0)
+            val stopEvent = history.begin(OperationSource.SYSTEM, "定时停止")
+            history.update(stopEvent, if (stopped.isSuccess) OperationStatus.SENT else OperationStatus.FAILED)
+        }
     }
 
     /** 输出通道 → BLE 写入器。constrict 可固定 byte4 mode。 */
@@ -160,13 +311,18 @@ class CommandDispatcher(
         val duration = numericField(cmd, "duration", 10.0).coerceAtLeast(0.0)
         val hold = numericField(cmd, "hold_seconds", 10.0).coerceAtLeast(0.0)
         if (name !in setOf("pulse", "wave", "escalate")) return ack(false, "Unknown pattern: $name", requestId)
+        val totalMs = when {
+            name == "escalate" && duration > 0 && hold > 0 -> ((duration + hold) * 1000).toLong()
+            name != "escalate" && duration > 0 -> (duration * 1000).toLong()
+            else -> 0L
+        }
 
         cancelJobs()
-        activeJob = launchPattern(event, cleanup = { writer(0.0).getOrThrow() }) {
+        activeJob = launchPattern(event, cleanup = { writer(0.0).getOrThrow() }, totalMs = totalMs) { g ->
             when (name) {
-                "pulse" -> runPulse(measuredWriter, intensity, duration)
-                "wave" -> runWave(measuredWriter, intensity, duration)
-                "escalate" -> runEscalate(measuredWriter, intensity, duration, hold)
+                "pulse" -> runPulse(g, measuredWriter, intensity, duration)
+                "wave" -> runWave(g, measuredWriter, intensity, duration)
+                "escalate" -> runEscalate(g, measuredWriter, intensity, duration, hold)
             }
         }
         return ack(true, "Pattern $name started on yingti${mode?.let { " (constrict mode $it)" } ?: ""}", requestId)
@@ -209,33 +365,37 @@ class CommandDispatcher(
         cancelJobs()
         val name = cmd.optString("name", "custom")
         activeJob = launchPattern(event, cleanup = { ble.stopAll().getOrThrow() },
-            patternId = cmd.optString("id").takeIf { it.isNotBlank() }, totalMs = steps.sumOf { it.durationMs } * repetitions) {
+            patternId = cmd.optString("id").takeIf { it.isNotBlank() }, totalMs = steps.sumOf { it.durationMs } * repetitions) { g ->
                 var counted = false
                 var lastVibrateLevel: Int? = null
                 var lastSuctionLevel: Int? = null
                 var lastSuctionMode: Int? = null
-                repeat(repetitions) {
-                    for (step in steps) {
-                        val vibrateLevel = SvakomProtocol.levelFor(step.vibrate)
-                        val suctionLevel = SvakomProtocol.suctionLevelFor(step.constrict)
-                        if (vibrateLevel != lastVibrateLevel) {
-                            ble.setVibration(step.vibrate).getOrThrow()
-                            if (!counted && vibrateLevel > 0) {
-                                counted = true
-                                history.update(event, OperationStatus.RUNNING, usage = true)
-                            }
-                            lastVibrateLevel = vibrateLevel
-                        }
-                        if (suctionLevel != lastSuctionLevel || (suctionLevel > 0 && step.constrictMode != lastSuctionMode)) {
-                            ble.setSuction(step.constrict, step.constrictMode).getOrThrow()
-                            lastSuctionLevel = suctionLevel
-                            lastSuctionMode = step.constrictMode
-                        }
-                        if (!counted && (vibrateLevel > 0 || suctionLevel > 0)) {
+                suspend fun applyStep(step: CustomStep, force: Boolean) {
+                    val vibrateLevel = SvakomProtocol.levelFor(step.vibrate)
+                    val suctionLevel = SvakomProtocol.suctionLevelFor(step.constrict)
+                    if (force || vibrateLevel != lastVibrateLevel) {
+                        ble.setVibration(step.vibrate).getOrThrow()
+                        if (!counted && vibrateLevel > 0) {
                             counted = true
                             history.update(event, OperationStatus.RUNNING, usage = true)
                         }
-                        delay(step.durationMs)
+                        lastVibrateLevel = vibrateLevel
+                    }
+                    if (force || suctionLevel != lastSuctionLevel || (suctionLevel > 0 && step.constrictMode != lastSuctionMode)) {
+                        ble.setSuction(step.constrict, step.constrictMode).getOrThrow()
+                        lastSuctionLevel = suctionLevel
+                        lastSuctionMode = step.constrictMode
+                    }
+                    if (!counted && (vibrateLevel > 0 || suctionLevel > 0)) {
+                        counted = true
+                        history.update(event, OperationStatus.RUNNING, usage = true)
+                    }
+                }
+                repeat(repetitions) {
+                    for (step in steps) {
+                        g.reapply = { applyStep(step, force = true) }
+                        g.write { applyStep(step, force = false) }
+                        g.delay(step.durationMs)
                     }
                 }
         }
@@ -253,38 +413,49 @@ class CommandDispatcher(
         dispatch(JSONObject().put("type", "stop"), OperationSource.SYSTEM)
     }
 
-    private suspend fun runPulse(writer: suspend (Double) -> Result<Int>, intensity: Double, duration: Double) {
-        val started = System.nanoTime()
-        while (duration <= 0 || elapsedSeconds(started) < duration) {
-            writer(intensity).getOrThrow()
-            delay(500)
-            writer(0.0).getOrThrow()
-            delay(300)
+    /** Pause-gated write: skipped while paused; reapply restores the value on resume. */
+    private suspend fun PauseGate.output(writer: suspend (Double) -> Result<Int>, value: Double): Result<Int> {
+        reapply = { writer(value) }
+        var result: Result<Int> = Result.success(0)
+        write { result = writer(value) }
+        return result
+    }
+
+    private suspend fun runPulse(g: PauseGate, writer: suspend (Double) -> Result<Int>, intensity: Double, duration: Double) {
+        val started = nanoTime()
+        while (duration <= 0 || g.activeNanosSince(started) / 1e9 < duration) {
+            g.output(writer, intensity).getOrThrow()
+            g.delay(500)
+            g.output(writer, 0.0).getOrThrow()
+            g.delay(300)
         }
     }
 
-    private suspend fun runWave(writer: suspend (Double) -> Result<Int>, intensity: Double, duration: Double) {
-        val started = System.nanoTime()
-        while (duration <= 0 || elapsedSeconds(started) < duration) {
-            val value = ((sin(elapsedSeconds(started) * 2.0) + 1.0) / 2.0) * intensity
-            writer(value).getOrThrow()
-            delay(100)
+    private suspend fun runWave(g: PauseGate, writer: suspend (Double) -> Result<Int>, intensity: Double, duration: Double) {
+        val started = nanoTime()
+        while (duration <= 0 || g.activeNanosSince(started) / 1e9 < duration) {
+            val value = ((sin(g.activeNanosSince(started) / 1e9 * 2.0) + 1.0) / 2.0) * intensity
+            g.output(writer, value).getOrThrow()
+            g.delay(100)
         }
     }
 
-    private suspend fun runEscalate(writer: suspend (Double) -> Result<Int>, peak: Double, duration: Double, hold: Double) {
+    private suspend fun runEscalate(g: PauseGate, writer: suspend (Double) -> Result<Int>, peak: Double, duration: Double, hold: Double) {
         val steps = 20
         val stepDelay = if (duration > 0) (duration * 1000 / steps).toLong() else 0L
         for (i in 0..steps) {
-            writer((i.toDouble() / steps) * peak).getOrThrow()
-            if (stepDelay > 0) delay(stepDelay)
+            g.output(writer, (i.toDouble() / steps) * peak).getOrThrow()
+            if (stepDelay > 0) g.delay(stepDelay)
         }
-        if (hold > 0) delay((hold * 1000).toLong()) else awaitCancellation()
+        if (hold > 0) g.delay((hold * 1000).toLong()) else g.delay(Long.MAX_VALUE)
     }
 
     private suspend fun cancelJobs() {
         timedStop?.cancelAndJoin()
         timedStop = null
+        timedChannel = null
+        timedMode = null
+        timedDeadline = 0
         activeJob?.let { job ->
             activeJob = null
             job.cancelAndJoin()
@@ -292,7 +463,6 @@ class CommandDispatcher(
     }
 
     private fun targetsDevice(device: String) = device == "all" || device == "yingti"
-    private fun elapsedSeconds(start: Long) = (System.nanoTime() - start) / 1_000_000_000.0
 
     private fun numericField(cmd: JSONObject, key: String, default: Double): Double {
         if (!cmd.has(key) || cmd.isNull(key)) return default

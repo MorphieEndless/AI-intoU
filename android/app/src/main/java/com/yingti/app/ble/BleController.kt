@@ -19,7 +19,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.util.UUID
 
-class BleController(private val context: Context, private val scope: CoroutineScope) {
+class BleController(private val context: Context, private val scope: CoroutineScope) : ToyOutput {
     private val adapter = (context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter
     private var scannerCallback: ScanCallback? = null
     private var scanTimeoutJob: Job? = null
@@ -64,7 +64,7 @@ class BleController(private val context: Context, private val scope: CoroutineSc
         )
     }
 
-    val isConnected: Boolean get() = gatt != null && writeCharacteristic != null
+    override val isConnected: Boolean get() = gatt != null && writeCharacteristic != null
 
     fun start() {
         shouldRun = true
@@ -72,7 +72,7 @@ class BleController(private val context: Context, private val scope: CoroutineSc
     }
 
     @SuppressLint("MissingPermission")
-    fun scan() {
+    override fun scan() {
         if (!shouldRun) return
         if (!hasBlePermissions()) {
             AppState.update { it.copy(bleStatus = "缺少蓝牙权限", error = "请授予附近设备权限") }
@@ -203,7 +203,7 @@ class BleController(private val context: Context, private val scope: CoroutineSc
         if (reconnect && shouldRun) scheduleScan(250)
     }
 
-    suspend fun setVibration(intensity: Double): Result<Int> {
+    override suspend fun setVibration(intensity: Double): Result<Int> {
         val level = SvakomProtocol.levelFor(intensity)
         return write(SvakomProtocol.vibrate(level), deduplicate = level > 0).map {
             currentVibrateLevel = level
@@ -213,7 +213,7 @@ class BleController(private val context: Context, private val scope: CoroutineSc
         }
     }
 
-    suspend fun setSuction(intensity: Double, mode: Int = SvakomProtocol.SUCTION_DEFAULT_MODE): Result<Int> {
+    override suspend fun setSuction(intensity: Double, mode: Int): Result<Int> {
         val level = SvakomProtocol.suctionLevelFor(intensity)
         val frame = runCatching { SvakomProtocol.suction(level, mode) }.getOrElse { return Result.failure(it) }
         return write(frame, deduplicate = level > 0).map {
@@ -225,7 +225,7 @@ class BleController(private val context: Context, private val scope: CoroutineSc
         }
     }
 
-    suspend fun writeRaw(hexText: String): Result<String> {
+    override suspend fun writeRaw(hexText: String): Result<String> {
         val tokens = hexText.trim().split(Regex("[\\s,]+")).filter { it.isNotBlank() }
         if (tokens.isEmpty()) return Result.failure(IllegalArgumentException("空的 HEX 输入"))
         val bytes = try { tokens.map { it.toInt(16).toByte() }.toByteArray() }
@@ -233,7 +233,7 @@ class BleController(private val context: Context, private val scope: CoroutineSc
         return write(bytes).map { AppState.update { state -> state.copy(lastMessage = "已发送 $hexText") }; hexText }
     }
 
-    suspend fun stopAll(): Result<Unit> {
+    override suspend fun stopAll(): Result<Unit> {
         var failure: Throwable? = null
         // Clear intent and cancel watchdog first, including when the device is offline.
         currentVibrateLevel = 0

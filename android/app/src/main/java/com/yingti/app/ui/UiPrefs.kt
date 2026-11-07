@@ -15,6 +15,10 @@ object UiPrefs {
     private const val KEY_DEV_MODE = "dev_mode"
     private const val KEY_AI_ACCESS_DONE = "onboarding_ai_access_done"
     private const val KEY_ONBOARDING_DISMISSED = "onboarding_dismissed"
+    private const val KEY_OVERLAY_ENABLED = "overlay_enabled"
+    private const val KEY_OVERLAY_PROMPT_DISMISSED = "overlay_prompt_dismissed"
+    private const val KEY_OVERLAY_X = "overlay_x"
+    private const val KEY_OVERLAY_Y = "overlay_y"
 
     private fun prefs(context: Context) =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -55,5 +59,28 @@ object UiPrefs {
 
     fun setOnboardingDismissed(context: Context, value: Boolean) {
         prefs(context).edit().putBoolean(KEY_ONBOARDING_DISMISSED, value).apply()
+    }
+
+    /** 默认开启：任何界面都能一键急停 / 继续的红色悬浮球。 */
+    fun overlayEnabled(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_OVERLAY_ENABLED, true)
+
+    fun setOverlayEnabled(context: Context, value: Boolean) {
+        prefs(context).edit().putBoolean(KEY_OVERLAY_ENABLED, value).apply()
+    }
+
+    /** 用户暂时不授权悬浮球权限时，不再重复弹引导。 */
+    fun overlayPromptDismissed(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_OVERLAY_PROMPT_DISMISSED, false)
+
+    fun setOverlayPromptDismissed(context: Context, value: Boolean) {
+        prefs(context).edit().putBoolean(KEY_OVERLAY_PROMPT_DISMISSED, value).apply()
+    }
+
+    fun overlayX(context: Context): Int = prefs(context).getInt(KEY_OVERLAY_X, -1)
+    fun overlayY(context: Context): Int = prefs(context).getInt(KEY_OVERLAY_Y, -1)
+
+    fun setOverlayPosition(context: Context, x: Int, y: Int) {
+        prefs(context).edit().putInt(KEY_OVERLAY_X, x).putInt(KEY_OVERLAY_Y, y).apply()
     }
 }

@@ -13,8 +13,12 @@ import com.yingti.app.AppState
 import com.yingti.app.MainActivity
 import com.yingti.app.R
 import com.yingti.app.YingtiApp
+import com.yingti.app.ToyControl
 import com.yingti.app.ble.BleController
+import com.yingti.app.ui.UiPrefs
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -28,6 +32,7 @@ class RelayService : Service() {
     private val lifecycleMutex = Mutex()
     @Volatile private var destroying = false
     private var wakeLock: PowerManager.WakeLock? = null
+    private lateinit var overlay: FloatingControlOverlay
 
     override fun onCreate() {
         super.onCreate()
@@ -37,6 +42,12 @@ class RelayService : Service() {
         wakeLock = (getSystemService(POWER_SERVICE) as PowerManager)
             .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "YingtiBridge::Relay").apply { acquire() }
         ble = BleController(this, scope)
+        overlay = FloatingControlOverlay(this)
+        overlay.onClick = ::togglePause
+        overlay.update(UiPrefs.overlayEnabled(this))
+        scope.launch(Dispatchers.Main.immediate) {
+            AppState.state.map { it.toyControl }.distinctUntilChanged().collect { overlay.setControl(it) }
+        }
         initialized = scope.async {
             val app = application as YingtiApp
             app.awaitReady()
@@ -59,6 +70,18 @@ class RelayService : Service() {
                 val command = runCatching { JSONObject(intent?.getStringExtra(EXTRA_PATTERN).orEmpty()) }.getOrNull()
                 if (command != null && command.optString("type") == "custom_pattern") local(command)
             }
+            ACTION_TOGGLE_PAUSE -> togglePause()
+            ACTION_PAUSE -> scope.launch {
+                initialized.await()
+                if (!destroying) dispatcher.pause(OperationSource.PHONE)
+            }
+            ACTION_RESUME -> scope.launch {
+                initialized.await()
+                if (!destroying) dispatcher.resume(OperationSource.PHONE)
+            }
+            ACTION_OVERLAY_REFRESH -> scope.launch(Dispatchers.Main.immediate) {
+                if (!destroying) overlay.update(UiPrefs.overlayEnabled(this@RelayService))
+            }
             ACTION_STOP_ALL -> scope.launch {
                 initialized.await()
                 dispatcher.dispatch(JSONObject().put("type", "stop"), OperationSource.PHONE)
@@ -78,6 +101,20 @@ class RelayService : Service() {
             ACTION_SHUTDOWN -> stopSelf() // onDestroy performs the stop exactly once.
         }
         return START_STICKY
+    }
+
+    /** 暂停 / 继续共用入口；空闲时退化为全部停止 + 通知手机端急停。 */
+    private fun togglePause() {
+        scope.launch {
+            initialized.await()
+            if (destroying) return@launch
+            val wasIdle = AppState.state.value.toyControl == ToyControl.IDLE
+            dispatcher.togglePause(OperationSource.PHONE)
+            if (wasIdle) {
+                relay?.sendPhoneEmergencyStop()
+                updateNotification("已请求紧急停止")
+            }
+        }
     }
 
     private fun local(command: JSONObject) {
@@ -112,6 +149,7 @@ class RelayService : Service() {
 
     override fun onDestroy() {
         destroying = true
+        overlay.hide()
         relay?.stop() // prevent new commands before cancelling the current output
         // Lifecycle callbacks must never block the main looper on BLE pacing.
         scope.launch {
@@ -174,6 +212,10 @@ class RelayService : Service() {
         const val ACTION_SUCTION = "com.yingti.app.SUCTION"
         const val ACTION_RAW = "com.yingti.app.RAW"
         const val ACTION_STOP_ALL = "com.yingti.app.STOP_ALL"
+        const val ACTION_TOGGLE_PAUSE = "com.yingti.app.TOGGLE_PAUSE"
+        const val ACTION_PAUSE = "com.yingti.app.PAUSE"
+        const val ACTION_RESUME = "com.yingti.app.RESUME"
+        const val ACTION_OVERLAY_REFRESH = "com.yingti.app.OVERLAY_REFRESH"
         const val ACTION_RESTART = "com.yingti.app.RESTART"
         const val ACTION_SHUTDOWN = "com.yingti.app.SHUTDOWN"
         const val EXTRA_INTENSITY = "intensity"

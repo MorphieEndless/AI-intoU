@@ -1,5 +1,5 @@
 from typing import Literal
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, model_validator
 
 MIN_STEP_MS = 100
 MAX_STEPS = 128
@@ -48,6 +48,7 @@ class MetadataPatch(BaseModel):
     is_liked: StrictBool | None = None
     is_favorite: StrictBool | None = None
     description: str | None = Field(None, max_length=120)
+    repeat: StrictInt | None = Field(None, ge=1, le=MAX_REPEAT)
 
     @model_validator(mode="after")
     def explicit_non_null(self):

@@ -123,6 +123,10 @@ class PatternStore:
 
     def update_metadata(self, user_id, pattern_id, updates: dict):
         patch = MetadataPatch.model_validate(updates)
+        changes = patch.model_dump(exclude_unset=True)
+        repeat = changes.pop("repeat", None)
+        if repeat is not None and pattern_id == BUILTIN_ID:
+            raise ValueError("The built-in example repeat cannot be changed")
         with self._session() as session:
             row = session.get(LibraryPattern, (user_id, pattern_id))
             if row is None and pattern_id == BUILTIN_ID:
@@ -130,7 +134,12 @@ class PatternStore:
                 session.add(row)
             if row is None or row.deleted_at is not None:
                 return None
-            for key, value in patch.model_dump(exclude_unset=True).items():
+            if repeat is not None:
+                p = StoredPattern.model_validate_json(row.definition)
+                if sum(s.duration_ms for s in p.steps) * repeat > MAX_TOTAL_MS:
+                    raise ValueError("pattern may run for at most 10 minutes")
+                row.definition = p.model_copy(update={"repeat": repeat}).model_dump_json()
+            for key, value in changes.items():
                 setattr(row, key, value.strip() if key == "description" else value)
             row.updated_at = time.time()
             return self._pattern(row)

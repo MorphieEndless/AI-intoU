@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import com.yingti.app.BuildConfig
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -69,6 +70,10 @@ fun ConnectionSettingsScreen(
     onRegister: (ConnectionConfig, String, String, Boolean) -> Unit = { _, _, _, _ -> },
     onOpenAiAccess: () -> Unit = {},
     configured: Boolean = false,
+    overlayEnabled: Boolean = true,
+    overlayPermitted: Boolean = true,
+    onOverlayChange: (Boolean) -> Unit = {},
+    onRequestOverlayPermission: () -> Unit = {},
     onboarding: (@Composable () -> Unit)? = null,
 ) {
     val context = LocalContext.current
@@ -401,6 +406,19 @@ fun ConnectionSettingsScreen(
                             Text("当前", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                         }
                     }
+                }
+            }
+
+            SettingsSection("悬浮球") {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("红色悬浮球（急停 / 继续）", style = MaterialTheme.typography.bodyLarge)
+                    }
+                    Switch(checked = overlayEnabled, onCheckedChange = onOverlayChange, modifier = Modifier.testTag("overlay-switch"))
+                }
+                if (overlayEnabled && !overlayPermitted) {
+                    Text("需要授予“显示在其他应用上层”权限", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
+                    TextButton(onClick = onRequestOverlayPermission) { Text("去开启") }
                 }
             }
 

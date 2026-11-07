@@ -4,16 +4,23 @@ import android.app.Application
 import com.yingti.app.history.ActivityStore
 import com.yingti.app.auth.ApiClient
 import com.yingti.app.auth.TokenStore
+import com.yingti.app.patterns.PatternApi
+import com.yingti.app.patterns.PatternLibraryRepository
 import kotlinx.coroutines.*
+import okhttp3.OkHttpClient
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 class YingtiApp : Application() {
     lateinit var tokenStore: TokenStore
         private set
+    lateinit var httpClient: OkHttpClient
+        private set
     lateinit var apiClient: ApiClient
         private set
     lateinit var history: ActivityStore
+        private set
+    lateinit var patternLibrary: PatternLibraryRepository
         private set
 
     private val initialization = CompletableDeferred<Unit>()
@@ -30,8 +37,10 @@ class YingtiApp : Application() {
             try {
                 tokenStore = TokenStore(this@YingtiApp)
                 tokenStore.currentConfig() // warm encrypted values before rendering
-                apiClient = ApiClient()
+                httpClient = ApiClient.defaultClient()
+                apiClient = ApiClient(httpClient)
                 history = ActivityStore(this@YingtiApp)
+                patternLibrary = PatternLibraryRepository({ PatternApi(it, httpClient) })
                 initialization.complete(Unit)
                 mutableReady.value = true
             } catch (e: Exception) {

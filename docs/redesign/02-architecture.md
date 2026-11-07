@@ -280,3 +280,27 @@ This tranche precedes M2b and does not claim to complete M2b–M7.
 - App 0.17.0: invite registration, AI access page, owner admin page (dev mode),
   three-step onboarding card.
 
+
+### ADR 2026-11-07 — Library cache, repeat edit, pause/resume, floating control
+
+- `repeat` is the only definition field a human may change (1–60, total
+  ≤ 10 minutes, validated on the server and applied atomically with other
+  metadata fields). Names stay AI-owned so the AI can still recognise the
+  waveforms it created. The built-in example remains fully immutable.
+- Pause/resume is phone-local: it is reachable from the dashboard, the
+  waveform cards and the floating ball, never through the relay `dispatch`
+  path, so the AI cannot pause or resume. Pausing does not send
+  `phone_emergency_stop`; only the idle-state toggle (which performs a real
+  stop) does. A paused pattern freezes its job timeline and stops all
+  outputs; resuming re-applies the current step and finishes the remaining
+  time and rounds. Paused fixed outputs keep a snapshot, and a paused timed
+  command keeps its remaining duration. Any new command clears the paused
+  state.
+- The waveform list lives in a process-level repository keyed by
+  connection/account. It is bound once on app entry, survives tab switches,
+  refreshes manually or in the background after five minutes, and every
+  local write updates the cache in place.
+- The floating ball uses `SYSTEM_ALERT_WINDOW`, is on by default, can be
+  switched off in settings, and every WindowManager failure is non-fatal.
+- Host tests cover the job timeline and cache semantics; they cannot prove
+  physical device behaviour, which still needs on-device verification.

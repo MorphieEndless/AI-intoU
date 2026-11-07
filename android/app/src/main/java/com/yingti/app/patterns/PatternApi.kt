@@ -1,5 +1,6 @@
 package com.yingti.app.patterns
 
+import com.yingti.app.auth.ApiClient
 import com.yingti.app.auth.ConnectionConfig
 import kotlinx.coroutines.suspendCancellableCoroutine
 import okhttp3.*
@@ -20,9 +21,8 @@ interface LibraryApi {
     suspend fun restore(id: String): JSONObject
 }
 
-class PatternApi(private val config: ConnectionConfig) : LibraryApi {
-    private val client = OkHttpClient.Builder().connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(15, TimeUnit.SECONDS).callTimeout(20, TimeUnit.SECONDS)
+class PatternApi(private val config: ConnectionConfig, base: OkHttpClient = ApiClient.defaultClient()) : LibraryApi {
+    private val client = base.newBuilder().callTimeout(20, TimeUnit.SECONDS)
         .followRedirects(false).followSslRedirects(false).build()
 
     override suspend fun list(offset: Int, filter: String, query: String): PatternPage {
@@ -40,7 +40,7 @@ class PatternApi(private val config: ConnectionConfig) : LibraryApi {
     }
     override suspend fun patch(id: String, changes: JSONObject): JSONObject {
         validateId(id)
-        require(changes.length() > 0 && changes.keys().asSequence().all { it in setOf("is_liked", "is_favorite", "description") })
+        require(changes.length() > 0 && changes.keys().asSequence().all { it in setOf("is_liked", "is_favorite", "description", "repeat") })
         return JSONObject(request("PATCH", "/$id", changes)).also { PatternDefinition.from(it) }
     }
     override suspend fun restore(id: String): JSONObject {
@@ -70,7 +70,7 @@ class PatternApi(private val config: ConnectionConfig) : LibraryApi {
                                 401, 403 -> "波形库认证失败，请确认手机与 AI 使用同一用户的 Token"
                                 404 -> "波形不存在，或服务器尚未升级到支持客户端波形库的版本"
                                 409 -> "当前操作无法完成，可能已超过撤销时间或存在同名波形"
-                                422 -> "波形备注或标记格式不正确，请检查后重试"
+                                422 -> "波形备注、标记或循环轮数不正确（总时长不能超过 10 分钟），请检查后重试"
                                 429 -> "请求过于频繁，请稍后刷新"
                                 else -> "波形库请求失败（HTTP ${it.code}）"
                             }
