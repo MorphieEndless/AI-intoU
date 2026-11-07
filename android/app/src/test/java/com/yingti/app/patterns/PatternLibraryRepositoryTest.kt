@@ -52,9 +52,10 @@ class PatternLibraryRepositoryTest {
             values[id] = updated
             return updated.toJson()
         }
-        override suspend fun delete(id: String) { values.remove(id) }
+        val deleted = mutableMapOf<String, PatternDefinition>()
+        override suspend fun delete(id: String) { deleted[id] = values.remove(id)!! }
         override suspend fun restore(id: String): JSONObject {
-            val p = PatternDefinition(id, "慢慢升起", "留白", "yingti", 2, 1.0, listOf(WaveStep(12000, .5, 0.0)))
+            val p = deleted.remove(id)!!
             values[id] = p
             return p.toJson()
         }
