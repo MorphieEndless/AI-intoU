@@ -15,13 +15,35 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Icon
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.yingti.app.auth.AccountSession
@@ -37,6 +59,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlin.math.roundToInt
 
 enum class AppScreen {
     DASHBOARD, PATTERNS, LOGS, SETTINGS,
@@ -69,8 +92,8 @@ class MainActivity : ComponentActivity() {
             var devMode by remember { mutableStateOf(UiPrefs.devMode(context)) }
             YingtiTheme(darkTheme = darkTheme, paletteKey = paletteKey) {
                 val scope = rememberCoroutineScope()
-                val runningFlow = remember { AppState.state.map { it.serviceRunning }.distinctUntilChanged() }
-                val serviceRunning by runningFlow.collectAsStateWithLifecycle(initialValue = false)
+                val bridge by AppState.state.collectAsStateWithLifecycle()
+                val serviceRunning = bridge.serviceRunning
                 var connectionConfig by remember { mutableStateOf(app.tokenStore.currentConfig()) }
                 var savedPassword by remember { mutableStateOf(app.tokenStore.savedPassword) }
                 var configured by remember { mutableStateOf(app.tokenStore.isConfigured) }
@@ -86,8 +109,7 @@ class MainActivity : ComponentActivity() {
                 var overlayEnabled by remember { mutableStateOf(UiPrefs.overlayEnabled(context)) }
                 var overlayPermitted by remember { mutableStateOf(android.provider.Settings.canDrawOverlays(context)) }
                 var overlayPromptDismissed by remember { mutableStateOf(UiPrefs.overlayPromptDismissed(context)) }
-                val toyFlow = remember { AppState.state.map { it.bleStatus == "已连接" }.distinctUntilChanged() }
-                val toyConnected by toyFlow.collectAsStateWithLifecycle(initialValue = false)
+                val toyConnected = bridge.bleStatus == "已连接"
                 val accountSession = remember { AccountSession(app.apiClient, app.tokenStore) }
                 val deviceLabel = remember { ApiClient.deviceLabel(Build.MODEL) }
 
@@ -184,10 +206,22 @@ class MainActivity : ComponentActivity() {
                     } else app.patternLibrary.clear()
                 }
 
-                LifecycleResumeEffect(serviceRunning) {
-                    overlayPermitted = android.provider.Settings.canDrawOverlays(context)
-                    if (serviceRunning) RelayService.send(context, RelayService.ACTION_OVERLAY_REFRESH)
-                    onPauseOrDispose { }
+                LifecycleResumeEffect(serviceRunning, configured, overlayEnabled) {
+                    fun syncOverlay() {
+                        val permitted = android.provider.Settings.canDrawOverlays(context)
+                        overlayPermitted = permitted
+                        if (serviceRunning || (configured && overlayEnabled && permitted)) {
+                            RelayService.send(context, RelayService.ACTION_OVERLAY_REFRESH)
+                        }
+                    }
+                    syncOverlay()
+                    val recheckJob = scope.launch {
+                        delay(350)
+                        syncOverlay()
+                        delay(750)
+                        syncOverlay()
+                    }
+                    onPauseOrDispose { recheckJob.cancel() }
                 }
 
                 fun requestOverlayPermission() {
@@ -216,7 +250,6 @@ class MainActivity : ComponentActivity() {
                     AppNavigation(screen, { screen = it }) {
                         when (screen) {
                             AppScreen.DASHBOARD -> {
-                                val bridge by AppState.state.collectAsStateWithLifecycle()
                                 DashboardScreen(
                                     state = bridge,
                                     server = connectionConfig.normalizedBaseUrl,
@@ -248,16 +281,12 @@ class MainActivity : ComponentActivity() {
                                     screen = AppScreen.SETTINGS
                                 })
                             } else {
-                                val connectedFlow = remember {
-                                    AppState.state.map { it.serviceRunning && it.bleStatus == "已连接" }.distinctUntilChanged()
-                                }
-                                val connected by connectedFlow.collectAsStateWithLifecycle(initialValue = false)
-                                val playbackFlow = remember { AppState.state.map { it.patternPlayback }.distinctUntilChanged() }
-                                val playback by playbackFlow.collectAsStateWithLifecycle(initialValue = null)
+                                val connected = bridge.serviceRunning && bridge.bleStatus == "已连接"
+                                val playback = bridge.patternPlayback
                                 var progress by remember(playback) { mutableStateOf<Float?>(playback?.progress(System.nanoTime())) }
                                 LaunchedEffect(playback) {
                                     while (playback != null) {
-                                        progress = playback?.progress(System.nanoTime())
+                                        progress = playback.progress(System.nanoTime())
                                         delay(100)
                                     }
                                 }
@@ -280,8 +309,7 @@ class MainActivity : ComponentActivity() {
                                 ActivityScreen(history)
                             }
                             AppScreen.SETTINGS -> {
-                                val messageFlow = remember { AppState.state.map { it.lastMessage }.distinctUntilChanged() }
-                                val lastMessage by messageFlow.collectAsStateWithLifecycle(initialValue = "")
+                                val lastMessage = bridge.lastMessage
                                 SettingsPages(
                                     devMode, configured, lastMessage,
                                     { RelayService.sendRaw(context, it) }, ::logout,
@@ -315,7 +343,7 @@ class MainActivity : ComponentActivity() {
                                         onOverlayChange = {
                                             overlayEnabled = it
                                             UiPrefs.setOverlayEnabled(context, it)
-                                            if (serviceRunning) RelayService.send(context, RelayService.ACTION_OVERLAY_REFRESH)
+                                            if (serviceRunning || configured) RelayService.send(context, RelayService.ACTION_OVERLAY_REFRESH)
                                         },
                                         onRequestOverlayPermission = ::requestOverlayPermission,
                                         onCancel = {
@@ -376,14 +404,23 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
+                    // 当系统级悬浮球尚未挂载（如尚未授予悬浮窗权限或服务未就绪）时，在应用内顶层无缝展示同一颗 56dp 红色圆形悬浮球；
+                    // 一旦系统级悬浮球挂载成功（切后台也持续存在），应用内悬浮球自动让位避免重叠。
+                    if (!splashVisible && overlayEnabled && !bridge.systemOverlayShowing) {
+                        InAppFloatingBall(
+                            control = bridge.toyControl,
+                            onClick = { RelayService.send(context, RelayService.ACTION_TOGGLE_PAUSE) },
+                        )
+                    }
+
                     if (!splashVisible && configured && overlayEnabled && !overlayPermitted && !overlayPromptDismissed) {
                         AlertDialog(
                             onDismissRequest = {
                                 overlayPromptDismissed = true
                                 UiPrefs.setOverlayPromptDismissed(context, true)
                             },
-                            title = { androidx.compose.material3.Text("开启悬浮球") },
-                            text = { androidx.compose.material3.Text("悬浮球让你在任何界面都能一键暂停 / 继续玩具。需要授予“显示在其他应用上层”权限。") },
+                            title = { androidx.compose.material3.Text("开启后台悬浮球") },
+                            text = { androidx.compose.material3.Text("授予“显示在其他应用上层”权限后，就算把樱趣切到后台，红色悬浮球也会持续留在屏幕上供你随时暂停 / 继续。") },
                             confirmButton = {
                                 androidx.compose.material3.TextButton(onClick = {
                                     overlayPromptDismissed = true
@@ -409,6 +446,81 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun InAppFloatingBall(
+    control: ToyControl,
+    onClick: () -> Unit,
+) {
+    val context = LocalContext.current
+    val density = LocalDensity.current
+    val ballSizePx = with(density) { 56.dp.toPx() }
+    val defaultMarginPx = with(density) { 16.dp.toPx() }
+
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val maxW = constraints.maxWidth.toFloat().coerceAtLeast(ballSizePx)
+        val maxH = constraints.maxHeight.toFloat().coerceAtLeast(ballSizePx)
+        val limitX = (maxW - ballSizePx).coerceAtLeast(0f)
+        val limitY = (maxH - ballSizePx).coerceAtLeast(0f)
+
+        var offsetX by remember(maxW) {
+            val saved = UiPrefs.overlayX(context)
+            mutableFloatStateOf(
+                if (saved >= 0) saved.toFloat().coerceIn(0f, limitX)
+                else (maxW - ballSizePx - defaultMarginPx).coerceIn(0f, limitX)
+            )
+        }
+        var offsetY by remember(maxH) {
+            val saved = UiPrefs.overlayY(context)
+            mutableFloatStateOf(
+                if (saved >= 0) saved.toFloat().coerceIn(0f, limitY)
+                else (maxH / 3f).coerceIn(0f, limitY)
+            )
+        }
+
+        Box(
+            modifier = Modifier
+                .offset { IntOffset(offsetX.roundToInt(), offsetY.roundToInt()) }
+                .size(56.dp)
+                .shadow(6.dp, CircleShape)
+                .clip(CircleShape)
+                .background(Color(0xFFB3261E), CircleShape)
+                .border(1.5.dp, Color.White.copy(alpha = 0.2f), CircleShape)
+                .pointerInput(limitX, limitY) {
+                    detectDragGestures(
+                        onDragEnd = {
+                            UiPrefs.setOverlayPosition(context, offsetX.roundToInt(), offsetY.roundToInt())
+                        },
+                        onDragCancel = {
+                            UiPrefs.setOverlayPosition(context, offsetX.roundToInt(), offsetY.roundToInt())
+                        },
+                    ) { change, dragAmount ->
+                        change.consume()
+                        offsetX = (offsetX + dragAmount.x).coerceIn(0f, limitX)
+                        offsetY = (offsetY + dragAmount.y).coerceIn(0f, limitY)
+                    }
+                }
+                .clickable(onClick = onClick)
+                .testTag("floating-overlay-ball"),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = when (control) {
+                    ToyControl.RUNNING -> Icons.Filled.Pause
+                    ToyControl.PAUSED -> Icons.Filled.PlayArrow
+                    ToyControl.IDLE -> Icons.Filled.Stop
+                },
+                contentDescription = when (control) {
+                    ToyControl.RUNNING -> "暂停全部输出"
+                    ToyControl.PAUSED -> "继续播放"
+                    ToyControl.IDLE -> "STOP ALL"
+                },
+                tint = Color.White,
+                modifier = Modifier.size(28.dp),
+            )
         }
     }
 }
