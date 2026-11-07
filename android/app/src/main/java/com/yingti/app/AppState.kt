@@ -21,6 +21,7 @@ data class BridgeState(
     val error: String? = null,
     val patternPlayback: PatternPlayback? = null,
     val pausedOutput: PausedOutput? = null,
+    val systemOverlayShowing: Boolean = false,
 ) {
     val toyControl: ToyControl get() = when {
         pausedOutput != null || patternPlayback?.paused == true -> ToyControl.PAUSED
