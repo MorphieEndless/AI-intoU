@@ -1,6 +1,7 @@
 package com.yingti.app.ui
 
 import android.app.Application
+import android.os.Looper
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.getValue
@@ -24,6 +25,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import java.io.File
@@ -210,7 +212,8 @@ class PatternLibraryScreenTest {
         api.holdList = true
         repo.bind(cfg)
         CoroutineScope(SupervisorJob() + Dispatchers.Main).launch { repo.ensureLoaded() } // Simulates MainActivity's preload.
-        compose.waitUntil(10000) { api.listStarted }
+        shadowOf(Looper.getMainLooper()).idle()
+        assertTrue(api.listStarted)
         compose.setContent { YingtiTheme {
             PatternLibraryScreen(cfg, true, ActivityStore(RuntimeEnvironment.getApplication()), { played += it }, repository = repo)
         } }

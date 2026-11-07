@@ -199,7 +199,7 @@ class PatternLibraryRepositoryTest {
         val repo1 = PatternLibraryRepository({ api1 }, { 0L }, dir, scope = backgroundScope, background = EmptyCoroutineContext)
         repo1.bind(configA)
         repo1.ensureLoaded()
-        advanceUntilIdle()
+        runCurrent()
         assertTrue(dir.listFiles()!!.any { it.extension == "json" })
 
         val api2 = FakeApi()
@@ -225,7 +225,7 @@ class PatternLibraryRepositoryTest {
         val repo1 = PatternLibraryRepository({ api1 }, { 0L }, dir, scope = backgroundScope, background = EmptyCoroutineContext)
         repo1.bind(configA)
         repo1.ensureLoaded()
-        advanceUntilIdle()
+        runCurrent()
 
         val api2 = FakeApi()
         api2.failList = true
@@ -246,7 +246,7 @@ class PatternLibraryRepositoryTest {
         repo.patch("abc123456789", JSONObject().put("is_liked", true))
         val index = repo.delete("abc123456789")
         repo.restore("abc123456789", index)
-        advanceUntilIdle()
+        runCurrent()
 
         val api2 = FakeApi()
         val repo2 = PatternLibraryRepository({ api2 }, { 0L }, dir, scope = backgroundScope, background = EmptyCoroutineContext)
@@ -283,7 +283,7 @@ class PatternLibraryRepositoryTest {
         val repoA = PatternLibraryRepository({ apiA }, { 0L }, dir, scope = backgroundScope, background = EmptyCoroutineContext)
         repoA.bind(configA)
         repoA.ensureLoaded()
-        advanceUntilIdle()
+        runCurrent()
         val names = dir.listFiles()!!.map { it.name }
         assertTrue(names.isNotEmpty())
         names.forEach { assertFalse(it.contains("tok-a")); assertFalse(it.contains("tok-b")) }
@@ -308,10 +308,10 @@ class PatternLibraryRepositoryTest {
         val repo = PatternLibraryRepository({ api }, { 0L }, dir, scope = backgroundScope, background = EmptyCoroutineContext)
         repo.bind(configA)
         repo.ensureLoaded()
-        advanceUntilIdle()
+        runCurrent()
         assertTrue(dir.listFiles()!!.isNotEmpty())
         repo.clear()
-        advanceUntilIdle()
+        runCurrent()
         assertTrue(dir.listFiles()!!.isEmpty())
     }
 
