@@ -87,6 +87,42 @@ object WaveformGeometry {
         }
         return times.map { Point(it, value(p, channel, it, command)) }
     }
+    val CHANNELS = listOf("vibrate", "constrict")
+    private data class CurveKey(val id: String, val repeat: Int, val scale: Double, val steps: List<WaveStep>, val channel: String, val command: Boolean)
+    private val curveLock = Any()
+    private val curves = LinkedHashMap<CurveKey, FloatArray>(16, .75f, true)
+    private var curveFloats = 0
+
+    /** Cached cubic curve in (ms, value) space: [x0, y0, then per segment c1x, c1y, c2x, c2y, x, y]. */
+    fun curve(p: PatternDefinition, channel: String, command: Boolean = false): FloatArray {
+        val key = CurveKey(p.id, p.repeat, p.intensityScale, p.steps, channel, command)
+        synchronized(curveLock) { curves[key]?.let { return it } }
+        val list = segments(points(p, channel, command))
+        val flat = FloatArray(if (list.isEmpty()) 0 else 2 + 6 * list.size)
+        if (list.isNotEmpty()) {
+            flat[0] = list.first().start.ms.toFloat(); flat[1] = list.first().start.value.toFloat()
+            list.forEachIndexed { i, s ->
+                val o = 2 + 6 * i
+                flat[o] = s.c1.ms.toFloat(); flat[o + 1] = s.c1.value.toFloat()
+                flat[o + 2] = s.c2.ms.toFloat(); flat[o + 3] = s.c2.value.toFloat()
+                flat[o + 4] = s.end.ms.toFloat(); flat[o + 5] = s.end.value.toFloat()
+            }
+        }
+        synchronized(curveLock) {
+            curves[key]?.let { return it }
+            curves[key] = flat
+            curveFloats += flat.size
+            while (curves.size > 128 || (curveFloats > 2_000_000 && curves.size > 1)) {
+                val eldest = curves.entries.first()
+                curveFloats -= eldest.value.size
+                curves.remove(eldest.key)
+            }
+        }
+        return flat
+    }
+
+    fun prewarm(patterns: List<PatternDefinition>) = patterns.forEach { p -> CHANNELS.forEach { if (p.hasChannel(it)) curve(p, it, false) } }
+
     fun segments(points: List<Point>): List<Segment> {
         if (points.size < 2) return emptyList()
         val slopes = points.zipWithNext { a, b -> (b.value - a.value) / (b.ms - a.ms) }

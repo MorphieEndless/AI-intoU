@@ -93,6 +93,41 @@ def test_patch_repeat_updates_definition_and_enforces_limits(library):
         store.update_metadata("alice", "builtin-wave", {"repeat": 2})
 
 
+def test_list_etag_conditional_requests(library):
+    store, client, headers = library
+    r = client.get("/patterns", headers=headers)
+    assert r.status_code == 200
+    etag = r.headers["ETag"]
+    assert etag.startswith('"') and r.headers["Cache-Control"] == "no-store"
+
+    for candidate in [etag, f"W/{etag}", f'"other", {etag}', "*"]:
+        r = client.get("/patterns", headers={**headers, "If-None-Match": candidate})
+        assert r.status_code == 304 and not r.content and r.headers["ETag"] == etag
+    assert client.get("/patterns", headers={**headers, "If-None-Match": '"stale"'}).status_code == 200
+    assert client.get("/patterns", headers={"If-None-Match": etag}).status_code == 401
+
+    def current_tag(**params):
+        r = client.get("/patterns", headers=headers, params=params)
+        assert r.status_code == 200
+        return r.headers["ETag"]
+
+    for params in [{"filter": "liked"}, {"q": "呼吸"}, {"include_steps": "true"}, {"offset": "1"}]:
+        assert current_tag(**params) != etag
+
+    p = store.create("alice", "节奏", [{"duration_ms": 30000, "vibrate": .3}])
+    assert current_tag() != etag
+    for body in [{"is_liked": True}, {"description": "备注"}, {"repeat": 2}]:
+        before = current_tag()
+        assert client.patch(f"/patterns/{p.id}", headers=headers, json=body).status_code == 200
+        assert current_tag() != before
+    before = current_tag()
+    assert client.delete(f"/patterns/{p.id}", headers=headers).status_code == 200
+    assert current_tag() != before
+    before = current_tag()
+    assert client.post(f"/patterns/{p.id}/restore", headers=headers).status_code == 200
+    assert current_tag() != before
+
+
 def test_filters_precede_pagination_and_search_notes(library):
     store, client, headers = library
     for i in range(4):

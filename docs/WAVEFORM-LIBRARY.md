@@ -28,7 +28,9 @@ supply user IDs. Responses have `Cache-Control: no-store`.
   returns a typed page. Filters are `all`, `liked`, `favorites`. Filtering and
   name/note search happen before pagination. The built-in appears once.
   `include_steps` defaults to false for older callers; Android opts in to
-  avoid a detail request for every visible chart.
+  avoid a detail request for every visible chart. The list returns a strong
+  `ETag` over the query parameters and serialized body and honors
+  `If-None-Match` with weak comparison, answering `304` when unchanged.
 - `GET /patterns/{id}` reads exact IDs, including `builtin-wave`.
 - `PATCH /patterns/{id}` accepts a nonempty partial metadata object. Unknown
   fields, nulls, string booleans, non-integer or out-of-range `repeat` values

@@ -11,10 +11,12 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalDensity
@@ -58,16 +60,18 @@ internal fun WaveformPreview(pattern: PatternDefinition, command: Boolean = fals
     val (primary, suction) = waveformChannelColors()
     val grid = colors.onSurfaceVariant.copy(alpha = .10f)
     val muted = colors.onSurfaceVariant.copy(alpha = .70f)
-    val channels = remember(pattern.steps) { listOf("vibrate", "constrict").filter { pattern.hasChannel(it) } }
-    val curves = remember(pattern.steps, pattern.repeat, pattern.intensityScale, command) { channels.associateWith { WaveformGeometry.segments(WaveformGeometry.points(pattern, it, command)) } }
+    val channels = remember(pattern.steps) { WaveformGeometry.CHANNELS.filter { pattern.hasChannel(it) } }
+    val curves = remember(pattern.id, pattern.steps, pattern.repeat, pattern.intensityScale, command) { channels.associateWith { WaveformGeometry.curve(pattern, it, command) } }
     val density = LocalDensity.current.density
     val traces = remember(curves, density) {
-        curves.mapValues { (_, segments) ->
-            fun x(ms: Double) = (8 + ms / 1000 * WaveformGeometry.PX_PER_SECOND).toFloat() * density
-            fun y(value: Double) = (82 - value * 70).toFloat() * density
+        curves.mapValues { (_, c) ->
+            fun x(ms: Float) = (8 + ms / 1000 * WaveformGeometry.PX_PER_SECOND) * density
+            fun y(value: Float) = (82 - value * 70) * density
             Path().apply {
-                if (segments.isNotEmpty()) moveTo(x(segments.first().start.ms), y(segments.first().start.value))
-                segments.forEach { s -> cubicTo(x(s.c1.ms), y(s.c1.value), x(s.c2.ms), y(s.c2.value), x(s.end.ms), y(s.end.value)) }
+                if (c.isNotEmpty()) {
+                    moveTo(x(c[0]), y(c[1]))
+                    for (i in 2 until c.size step 6) cubicTo(x(c[i]), y(c[i + 1]), x(c[i + 2]), y(c[i + 3]), x(c[i + 4]), y(c[i + 5]))
+                }
             }
         }
     }
@@ -95,10 +99,8 @@ internal fun WaveformPreview(pattern: PatternDefinition, command: Boolean = fals
                 }
                 BoxWithConstraints(Modifier.weight(1f)) {
                     val chartWidth = WaveformGeometry.width(pattern.totalMs, maxWidth.value)
-                    Column(Modifier.horizontalScroll(scroll).width(chartWidth.dp).semantics {
-                        contentDescription = "${pattern.name}，${secondsLabel(pattern.totalMs)}秒，${if (command) "指令值示意" else "节奏示意"}，可左右滑动查看"
-                    }) {
-                        Canvas(Modifier.fillMaxWidth().height(90.dp)) {
+                    val drawChart = remember<DrawScope.() -> Unit>(traces, wash, channels, primary, suction, grid, command, pattern.totalMs) {
+                        {
                             fun x(ms: Double) = (8 + ms / 1000 * WaveformGeometry.PX_PER_SECOND).toFloat().dp.toPx()
                             fun y(value: Double) = (82 - value * 70).toFloat().dp.toPx()
                             for (level in if (command) listOf(0.0, .2, .4, .6, .8, 1.0) else listOf(0.0, .25, .5, .75, 1.0))
@@ -114,8 +116,16 @@ internal fun WaveformPreview(pattern: PatternDefinition, command: Boolean = fals
                                 if (channel == "vibrate" && wash != null) drawPath(wash, color.copy(alpha = .14f))
                                 drawPath(path, color, style = Stroke(width = (if (channel == "vibrate") 2.2f else 2f).dp.toPx(), cap = StrokeCap.Round))
                             }
-                            progress?.let {
-                                val cursor = x(pattern.totalMs * it.coerceIn(0f, 1f).toDouble())
+                        }
+                    }
+                    Column(Modifier.horizontalScroll(scroll).width(chartWidth.dp).semantics {
+                        contentDescription = "${pattern.name}，${secondsLabel(pattern.totalMs)}秒，${if (command) "指令值示意" else "节奏示意"}，可左右滑动查看"
+                    }) {
+                        Box {
+                            Canvas(Modifier.fillMaxWidth().height(90.dp), onDraw = drawChart)
+                            if (progress != null) Canvas(Modifier.matchParentSize()) {
+                                fun x(ms: Double) = (8 + ms / 1000 * WaveformGeometry.PX_PER_SECOND).toFloat().dp.toPx()
+                                val cursor = x(pattern.totalMs * progress.coerceIn(0f, 1f).toDouble())
                                 drawLine(primary.copy(alpha = .7f), Offset(cursor, 8.dp.toPx()), Offset(cursor, 82.dp.toPx()), 1.dp.toPx())
                             }
                         }
