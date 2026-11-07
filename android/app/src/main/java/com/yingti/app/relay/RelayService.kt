@@ -44,9 +44,18 @@ class RelayService : Service() {
         ble = BleController(this, scope)
         overlay = FloatingControlOverlay(this)
         overlay.onClick = ::togglePause
-        overlay.update(UiPrefs.overlayEnabled(this))
+        refreshOverlayOnMain()
         scope.launch(Dispatchers.Main.immediate) {
             AppState.state.map { it.toyControl }.distinctUntilChanged().collect { overlay.setControl(it) }
+        }
+        scope.launch(Dispatchers.Main.immediate) {
+            while (isActive && !destroying) {
+                val enabled = UiPrefs.overlayEnabled(this@RelayService)
+                if (enabled != overlay.isShowing) {
+                    overlay.update(enabled)
+                }
+                delay(1_500)
+            }
         }
         initialized = scope.async {
             val app = application as YingtiApp
@@ -56,7 +65,14 @@ class RelayService : Service() {
         AppState.update { it.copy(serviceRunning = true, lastMessage = "服务已启动") }
     }
 
+    private fun refreshOverlayOnMain() {
+        scope.launch(Dispatchers.Main.immediate) {
+            if (!destroying) overlay.update(UiPrefs.overlayEnabled(this@RelayService))
+        }
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        refreshOverlayOnMain()
         when (intent?.action ?: ACTION_START) {
             ACTION_START -> startBridge()
             ACTION_SCAN -> local(JSONObject().put("type", "scan"))
@@ -79,9 +95,7 @@ class RelayService : Service() {
                 initialized.await()
                 if (!destroying) dispatcher.resume(OperationSource.PHONE)
             }
-            ACTION_OVERLAY_REFRESH -> scope.launch(Dispatchers.Main.immediate) {
-                if (!destroying) overlay.update(UiPrefs.overlayEnabled(this@RelayService))
-            }
+            ACTION_OVERLAY_REFRESH -> refreshOverlayOnMain()
             ACTION_STOP_ALL -> scope.launch {
                 initialized.await()
                 dispatcher.dispatch(JSONObject().put("type", "stop"), OperationSource.PHONE)
@@ -123,6 +137,7 @@ class RelayService : Service() {
 
     /** Activity/task 消失不等于用户要求关闭桥接；持续连接由前台服务负责。 */
     override fun onTaskRemoved(rootIntent: Intent?) {
+        refreshOverlayOnMain()
         updateNotification("后台运行中 · 蓝牙与 Relay 保持连接")
         super.onTaskRemoved(rootIntent)
     }
