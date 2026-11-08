@@ -6,6 +6,8 @@ import com.yingti.app.auth.ApiClient
 import com.yingti.app.auth.TokenStore
 import com.yingti.app.patterns.PatternApi
 import com.yingti.app.patterns.PatternLibraryRepository
+import com.yingti.app.update.AndroidSystemDownloads
+import com.yingti.app.update.ApkVerifier
 import com.yingti.app.update.AppUpdater
 import java.io.File
 import java.util.concurrent.TimeUnit
@@ -47,9 +49,10 @@ class YingtiApp : Application() {
                 history = ActivityStore(this@YingtiApp)
                 patternLibrary = PatternLibraryRepository({ PatternApi(it, httpClient) }, cacheDir = File(filesDir, "pattern_cache"))
                 updater = AppUpdater(
-                    httpClient.newBuilder().readTimeout(30, TimeUnit.SECONDS).build(),
-                    File(cacheDir, "updates"),
-                    BuildConfig.VERSION_NAME,
+                    client = httpClient.newBuilder().readTimeout(30, TimeUnit.SECONDS).build(),
+                    downloads = AndroidSystemDownloads(this@YingtiApp),
+                    currentVersion = BuildConfig.VERSION_NAME,
+                    verifyPackage = { ApkVerifier.problemFor(this@YingtiApp, it) },
                 )
                 initialization.complete(Unit)
                 mutableReady.value = true

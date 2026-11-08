@@ -54,15 +54,68 @@ class AppUpdaterTest {
         var probeBody = byteArrayOf('P'.code.toByte(), 'K'.code.toByte())
         var probeTotal = -1L
         var probeDelayMs = 0L
-        var downloadStatus = 200
-        var downloadBody: ByteArray? = null
-        var throttleBytes = 0L
-        var throttlePeriodMs = 0L
+    }
+
+    /**
+     * Scripted DownloadManager stand-in: successive query() calls replay the
+     * snapshot list (the last entry repeats), a SUCCESSFUL snapshot materializes
+     * the scripted bytes into [root]/fileName, and remove() deletes it again.
+     */
+    private class FakeSystemDownloads(private val root: File) : SystemDownloads {
+        val enqueued = mutableListOf<Pair<String, String>>()
+        val removed = mutableListOf<Long>()
+        var enqueueError: Exception? = null
+
+        private var nextId = 1L
+        private val ids = mutableMapOf<Long, Pair<String, String>>()
+        private val scripts = mutableMapOf<String, ArrayDeque<DownloadSnapshot?>>()
+        private val bytes = mutableMapOf<String, ByteArray>()
+        private val files = mutableMapOf<Long, File>()
+
+        fun script(url: String, bytes: ByteArray, snapshots: List<DownloadSnapshot?>) {
+            scripts[url] = ArrayDeque(snapshots)
+            this.bytes[url] = bytes
+        }
+
+        fun script(url: String, snapshots: List<DownloadSnapshot?>) {
+            scripts[url] = ArrayDeque(snapshots)
+        }
+
+        override fun enqueue(url: String, fileName: String, title: String, description: String): Long {
+            enqueueError?.let { throw it }
+            enqueued += url to fileName
+            val id = nextId++
+            ids[id] = url to fileName
+            return id
+        }
+
+        override fun query(id: Long): DownloadSnapshot? {
+            val (url, fileName) = ids[id] ?: return null
+            val script = scripts[url] ?: return null
+            val snapshot = if (script.size > 1) script.removeFirst() else script.first()
+            if (snapshot?.status == DownloadStatus.SUCCESSFUL) {
+                files.getOrPut(id) {
+                    File(root, fileName).apply { writeBytes(bytes.getValue(url)) }
+                }
+            }
+            return snapshot
+        }
+
+        override fun remove(id: Long) {
+            removed += id
+            files.remove(id)?.delete()
+            ids.remove(id)
+        }
+
+        override fun localFile(id: Long): File? = files[id]
     }
 
     private val mirrors = mutableMapOf<String, Mirror>()
     private var officialStatus = 500
     private var officialBody = ""
+    private lateinit var fakeDownloads: FakeSystemDownloads
+    private val verifyCalls = mutableListOf<File>()
+    private var verifyResult: String? = null
 
     @Before
     fun startServer() {
@@ -88,15 +141,12 @@ class AppUpdaterTest {
                     }
                     return resp.setBody(Buffer().write(m.probeBody))
                 }
-                val resp = MockResponse().setResponseCode(m.downloadStatus)
-                if (m.throttleBytes > 0) {
-                    resp.throttleBody(m.throttleBytes, m.throttlePeriodMs, TimeUnit.MILLISECONDS)
-                }
-                return resp.setBody(Buffer().write(m.downloadBody ?: apkBytes))
+                return MockResponse().setResponseCode(404)
             }
         }
         server.start()
         dir = temp.newFolder()
+        fakeDownloads = FakeSystemDownloads(dir)
     }
 
     @After
@@ -110,13 +160,20 @@ class AppUpdaterTest {
         return UpdateSource(name, server.url("/$name/").toString(), proxiesApi)
     }
 
-    private fun updater(currentVersion: String = "0.17.0", sources: List<UpdateSource>) = AppUpdater(
+    private fun updater(
+        currentVersion: String = "0.17.0",
+        sources: List<UpdateSource>,
+        stallTimeoutMs: Long = 30_000,
+    ) = AppUpdater(
         client = OkHttpClient(),
-        downloadDir = dir,
+        downloads = fakeDownloads,
         currentVersion = currentVersion,
+        verifyPackage = { file -> verifyCalls.add(file); verifyResult },
         sources = sources,
         latestApiUrl = server.url("/latest").toString(),
         scope = scope,
+        pollIntervalMs = 20,
+        stallTimeoutMs = stallTimeoutMs,
     )
 
     private fun release(tag: String = "v0.19.0") = ReleaseInfo(
@@ -217,52 +274,96 @@ class AppUpdaterTest {
     }
 
     @Test
-    fun downloadStreamsVerifiesAndReportsProgress() = runBlocking {
+    fun downloadHandsFastestSourceToSystemDownloadsAndReportsProgress() = runBlocking {
         val m1 = mirror("m1")
         val m2 = mirror("m2")
-        mirrors["m1"]!!.apply {
-            throttleBytes = 32768
-            throttlePeriodMs = 60
-        }
         mirrors["m2"]!!.probeDelayMs = 300
+        fakeDownloads.script(
+            m1.wrap(assetUrl),
+            apkBytes,
+            listOf(
+                DownloadSnapshot(DownloadStatus.RUNNING, 100_000, apkBytes.size.toLong()),
+                DownloadSnapshot(DownloadStatus.RUNNING, 200_000, apkBytes.size.toLong()),
+                DownloadSnapshot(DownloadStatus.SUCCESSFUL, apkBytes.size.toLong(), apkBytes.size.toLong()),
+            ),
+        )
         val u = updater(sources = listOf(m1, m2))
         val states = java.util.Collections.synchronizedList(mutableListOf<UpdateState>())
         val collector = scope.launch { u.state.collect { states.add(it) } }
         u.download(release())
         collector.cancel()
+
+        assertEquals(listOf(m1.wrap(assetUrl) to "AI-intoU-v0.19.0.apk"), fakeDownloads.enqueued)
+        val progress = states.filterIsInstance<UpdateState.Downloading>()
+        assertTrue("expected Downloading progress frames in $states", progress.isNotEmpty())
+        assertTrue(progress.all { it.total == apkBytes.size.toLong() })
+        assertTrue(progress.zipWithNext().all { (a, b) -> b.downloaded >= a.downloaded })
         val s = u.state.value
         assertTrue(s is UpdateState.Downloaded)
         s as UpdateState.Downloaded
         assertEquals("m1", s.source.name)
-        assertArrayEquals(apkBytes, s.file.readBytes())
-        assertTrue(dir.listFiles()!!.none { it.name.endsWith(".part") })
-        val progress = states.filterIsInstance<UpdateState.Downloading>()
-        assertTrue("expected Downloading progress frames in $states", progress.isNotEmpty())
-        assertTrue(progress.all { it.total == apkBytes.size.toLong() && it.downloaded in 1..it.total })
-        assertTrue(progress.zipWithNext().all { (a, b) -> b.downloaded >= a.downloaded })
+        assertEquals(1L, s.downloadId)
+        assertEquals(1, verifyCalls.size)
+        assertArrayEquals(apkBytes, verifyCalls.single().readBytes())
+        assertTrue(fakeDownloads.removed.isEmpty())
+    }
+
+    @Test
+    fun downloadFallsBackWhenSystemDownloadFails() = runBlocking {
+        val m1 = mirror("m1")
+        val m2 = mirror("m2")
+        mirrors["m2"]!!.probeDelayMs = 300
+        fakeDownloads.script(
+            m1.wrap(assetUrl),
+            listOf(DownloadSnapshot(DownloadStatus.FAILED, 50_000, apkBytes.size.toLong(), reason = 1008)),
+        )
+        fakeDownloads.script(
+            m2.wrap(assetUrl),
+            apkBytes,
+            listOf(DownloadSnapshot(DownloadStatus.SUCCESSFUL, apkBytes.size.toLong(), apkBytes.size.toLong())),
+        )
+        val u = updater(sources = listOf(m1, m2))
+        u.download(release())
+        val s = u.state.value
+        assertTrue(s is UpdateState.Downloaded)
+        assertEquals("m2", (s as UpdateState.Downloaded).source.name)
+        assertEquals(listOf(1L), fakeDownloads.removed)
     }
 
     @Test
     fun downloadFallsBackWhenFastestSourceIsCorrupt() = runBlocking {
         val m1 = mirror("m1")
         val m2 = mirror("m2")
-        mirrors["m1"]!!.downloadBody = corruptBytes
         mirrors["m2"]!!.probeDelayMs = 300
+        fakeDownloads.script(
+            m1.wrap(assetUrl),
+            corruptBytes,
+            listOf(DownloadSnapshot(DownloadStatus.SUCCESSFUL, apkBytes.size.toLong(), apkBytes.size.toLong())),
+        )
+        fakeDownloads.script(
+            m2.wrap(assetUrl),
+            apkBytes,
+            listOf(DownloadSnapshot(DownloadStatus.SUCCESSFUL, apkBytes.size.toLong(), apkBytes.size.toLong())),
+        )
         val u = updater(sources = listOf(m1, m2))
         u.download(release())
         val s = u.state.value
         assertTrue(s is UpdateState.Downloaded)
-        s as UpdateState.Downloaded
-        assertEquals("m2", s.source.name)
-        assertArrayEquals(apkBytes, s.file.readBytes())
+        assertEquals("m2", (s as UpdateState.Downloaded).source.name)
+        assertTrue(fakeDownloads.removed.contains(1L))
     }
 
     @Test
     fun downloadFailsWhenEverySourceIsCorrupt() = runBlocking {
         val m1 = mirror("m1")
         val m2 = mirror("m2")
-        mirrors["m1"]!!.downloadBody = corruptBytes
-        mirrors["m2"]!!.downloadBody = corruptBytes
+        listOf(m1, m2).forEach { source ->
+            fakeDownloads.script(
+                source.wrap(assetUrl),
+                corruptBytes,
+                listOf(DownloadSnapshot(DownloadStatus.SUCCESSFUL, apkBytes.size.toLong(), apkBytes.size.toLong())),
+            )
+        }
         val u = updater(sources = listOf(m1, m2))
         u.download(release())
         val s = u.state.value
@@ -270,27 +371,100 @@ class AppUpdaterTest {
         s as UpdateState.Failed
         assertNotNull(s.release)
         assertTrue(s.message.startsWith("所有下载源都失败了"))
-        assertTrue(dir.listFiles()!!.isEmpty())
+        assertEquals(listOf(1L, 2L), fakeDownloads.removed)
+        assertTrue(verifyCalls.isEmpty())
     }
 
     @Test
-    fun cancelDownloadStopsAndRestoresAvailable() = runBlocking {
+    fun packageProblemDeletesDownloadAndStops() = runBlocking {
+        verifyResult = "安装包签名与当前 App 不同"
         val m1 = mirror("m1")
         val m2 = mirror("m2")
-        mirrors["m1"]!!.apply {
-            apiStatus = 200
-            apiBody = latestJson()
-            throttleBytes = 16384
-            throttlePeriodMs = 50
-        }
         mirrors["m2"]!!.probeDelayMs = 300
+        fakeDownloads.script(
+            m1.wrap(assetUrl),
+            apkBytes,
+            listOf(DownloadSnapshot(DownloadStatus.SUCCESSFUL, apkBytes.size.toLong(), apkBytes.size.toLong())),
+        )
+        val u = updater(sources = listOf(m1, m2))
+        u.download(release())
+        val s = u.state.value
+        assertTrue(s is UpdateState.Failed)
+        s as UpdateState.Failed
+        assertTrue(s.message.contains("安装包签名与当前 App 不同"))
+        assertTrue(s.message.contains("已删除"))
+        assertEquals(1, fakeDownloads.enqueued.size)
+        assertEquals(listOf(1L), fakeDownloads.removed)
+    }
+
+    @Test
+    fun enqueueFailureFallsBackToBrowser() = runBlocking {
+        fakeDownloads.enqueueError = IllegalArgumentException("DownloadManager disabled")
+        val m1 = mirror("m1")
+        val u = updater(sources = listOf(m1))
+        u.download(release())
+        val s = u.state.value
+        assertTrue(s is UpdateState.Failed)
+        s as UpdateState.Failed
+        assertNotNull(s.release)
+        assertTrue(s.message.contains("浏览器"))
+        assertEquals(1, fakeDownloads.enqueued.size)
+    }
+
+    @Test
+    fun cancelDownloadRemovesSystemDownloadAndRestoresAvailable() = runBlocking {
+        val m1 = mirror("m1")
+        val m2 = mirror("m2")
+        mirrors["m1"]!!.apply { apiStatus = 200; apiBody = latestJson() }
+        mirrors["m2"]!!.probeDelayMs = 300
+        fakeDownloads.script(
+            m1.wrap(assetUrl),
+            List(20) { DownloadSnapshot(DownloadStatus.RUNNING, (it + 1) * 10_000L, apkBytes.size.toLong()) },
+        )
         val u = updater(sources = listOf(m1, m2))
         u.check()
         u.startDownload()
         waitFor("downloading state") { u.state.value is UpdateState.Downloading }
         u.cancelDownload()
         waitFor("available state") { u.state.value is UpdateState.Available }
-        waitFor("part cleanup") { dir.listFiles()!!.none { it.name.endsWith(".part") } }
+        waitFor("system download removed") { fakeDownloads.removed.contains(1L) }
+    }
+
+    @Test
+    fun downloadRemovedByUserRestoresAvailable() = runBlocking {
+        val m1 = mirror("m1")
+        fakeDownloads.script(
+            m1.wrap(assetUrl),
+            listOf(
+                DownloadSnapshot(DownloadStatus.RUNNING, 10_000, apkBytes.size.toLong()),
+                null,
+            ),
+        )
+        val u = updater(sources = listOf(m1))
+        u.download(release())
+        assertTrue(u.state.value is UpdateState.Available)
+    }
+
+    @Test
+    fun stalledDownloadFallsBackToNextSource() = runBlocking {
+        val m1 = mirror("m1")
+        val m2 = mirror("m2")
+        mirrors["m2"]!!.probeDelayMs = 300
+        fakeDownloads.script(
+            m1.wrap(assetUrl),
+            listOf(DownloadSnapshot(DownloadStatus.RUNNING, 1_000, apkBytes.size.toLong())),
+        )
+        fakeDownloads.script(
+            m2.wrap(assetUrl),
+            apkBytes,
+            listOf(DownloadSnapshot(DownloadStatus.SUCCESSFUL, apkBytes.size.toLong(), apkBytes.size.toLong())),
+        )
+        val u = updater(sources = listOf(m1, m2), stallTimeoutMs = 200)
+        u.download(release())
+        val s = u.state.value
+        assertTrue(s is UpdateState.Downloaded)
+        assertEquals("m2", (s as UpdateState.Downloaded).source.name)
+        assertTrue(fakeDownloads.removed.contains(1L))
     }
 
     companion object {

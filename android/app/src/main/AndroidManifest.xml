@@ -14,8 +14,6 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
-    <!-- 应用内更新：APK 下载到私有 cache 后经 FileProvider 调起系统安装器需要声明此项；仅声明不授权，用户在安装时为樱趣单独开关「允许安装未知应用」。 -->
-    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <application android:name=".YingtiApp" android:allowBackup="false" android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher" android:label="@string/app_name" android:theme="@style/Theme.YingtiBridge" android:usesCleartextTraffic="true">
         <activity android:name=".MainActivity" android:exported="true">
@@ -25,8 +23,5 @@
             </intent-filter>
         </activity>
         <service android:name=".relay.RelayService" android:exported="false" android:foregroundServiceType="connectedDevice|dataSync" android:stopWithTask="false" />
-        <provider android:name="androidx.core.content.FileProvider" android:authorities="${applicationId}.updates" android:exported="false" android:grantUriPermissions="true">
-            <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/update_paths" />
-        </provider>
     </application>
 </manifest>

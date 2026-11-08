@@ -6,15 +6,13 @@ import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
-import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import com.yingti.app.update.ReleaseAsset
 import com.yingti.app.update.ReleaseInfo
 import com.yingti.app.update.UpdateSource
 import com.yingti.app.update.UpdateState
-import java.io.File
-import org.junit.Assert.assertNotNull
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -45,25 +43,19 @@ class UpdateContentTest {
         apk = apk,
     )
 
-    private fun render(
-        state: UpdateState,
-        canInstall: Boolean = true,
-        onInstall: (File) -> Unit = {},
-    ) {
+    private fun render(state: UpdateState, sdkInt: Int = 34) {
         compose.setContent {
             MaterialTheme {
                 UpdateContent(
                     state = state,
                     sources = sources,
                     currentVersion = "0.17.0",
-                    canInstall = canInstall,
-                    installError = null,
                     onBack = {},
                     onCheck = {},
                     onDownload = {},
                     onCancel = {},
-                    onInstall = onInstall,
                     onOpenReleasePage = {},
+                    sdkInt = sdkInt,
                 )
             }
         }
@@ -84,13 +76,23 @@ class UpdateContentTest {
     }
 
     @Test
-    fun downloadedWithoutPermissionOffersGrantAndStillInstalls() {
-        var installed: File? = null
-        render(UpdateState.Downloaded(release, source, File("cached.apk")), canInstall = false) {
-            installed = it
-        }
-        compose.onNodeWithText("去授权并安装").performScrollTo().performClick()
-        compose.runOnIdle { assertNotNull(installed) }
+    fun verifyingShowsProgressText() {
+        render(UpdateState.Verifying(release, source))
+        compose.onNodeWithText("正在校验安装包", substring = true).assertExists()
+    }
+
+    @Test
+    fun downloadedGuidesToSystemNotificationWithoutInstallButton() {
+        render(UpdateState.Downloaded(release, source, 7L), sdkInt = 34)
+        compose.onNodeWithTag("update-install-hint").assertExists()
+        compose.onNodeWithText("安装").assertDoesNotExist()
+        compose.onNodeWithTag("update-legacy-hint").assertDoesNotExist()
+    }
+
+    @Test
+    fun downloadedOnAndroid13ShowsBrowserHint() {
+        render(UpdateState.Downloaded(release, source, 7L), sdkInt = 33)
+        compose.onNodeWithTag("update-legacy-hint").assertExists()
     }
 
     @Test

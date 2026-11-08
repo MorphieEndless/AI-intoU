@@ -12,34 +12,40 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.yield
+import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 
 /**
- * 应用内更新：App 自己把 APK 下载到私有 cache 目录（不需要存储权限），
- * 再通过 FileProvider 调起系统安装器，因此清单里声明了
- * REQUEST_INSTALL_PACKAGES。把下载交给系统 DownloadManager 并不能绕开它：
- * 用户从下载通知或文件管理器打开 APK 时，PackageInstaller 会把安装归因给
- * 入队下载的 App（EXTRA_ORIGINATING_UID），未声明该权限会被直接拒绝；
- * 改走第三方文件管理器/浏览器，则要把「安装未知应用」授给那个 App
- * （它能装任何东西，范围更大），也拿不到应用内进度、镜像测速与完整性校验。
- * 声明权限本身不授予任何能力：用户在点安装时才单独为樱趣打开
- * 「允许安装未知应用」，并且随时可以在系统设置里收回。
- * 零权限退路始终保留：「在浏览器中打开 Release 页面」。
+ * 应用内更新（零权限路线）：测速选出最快的镜像后，把下载 URL 交给系统
+ * DownloadManager，文件落在应用专属的外部 Downloads 目录——任何 Android
+ * 版本都不需要存储权限（DownloadProvider 只对调用方包外的路径要求
+ * WRITE_EXTERNAL_STORAGE）。
+ * App 轮询进度，下载完成后校验文件大小 + SHA-256 + 包名/版本号/签名，
+ * 任何一项不符都会通过 remove() 连记录带文件一起删除；App 也从不发送
+ * 安装 Intent——用户点系统「下载完成」通知开始安装，Android 14+ 的安装器
+ * 会把它归因于系统下载应用而不是樱趣。
+ * 已知限制（如实说明）：Android 8–13 的 AOSP 安装器会把「点通知安装」归因
+ * 给入队下载的 App（EXTRA_ORIGINATING_UID），因为樱趣不声明
+ * REQUEST_INSTALL_PACKAGES 而中止安装；各家 ROM 行为可能不同。
+ * 此时的零权限退路是「在浏览器中打开 Release 页面」。
  */
 class AppUpdater(
     private val client: OkHttpClient,
-    private val downloadDir: File,
+    private val downloads: SystemDownloads,
     private val currentVersion: String,
+    private val verifyPackage: (File) -> String? = { null },
     val sources: List<UpdateSource> = UpdateSources.ALL,
     private val latestApiUrl: String = UpdateSources.LATEST_API,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
+    private val pollIntervalMs: Long = 500,
+    private val stallTimeoutMs: Long = 30_000,
 ) {
     private val mutableState = MutableStateFlow<UpdateState>(UpdateState.Idle)
     val state: StateFlow<UpdateState> = mutableState.asStateFlow()
@@ -47,9 +53,13 @@ class AppUpdater(
     private var checkJob: Job? = null
     private var downloadJob: Job? = null
 
+    @Volatile
+    private var activeDownloadId: Long? = null
+
     fun startCheck() {
         when (state.value) {
-            is UpdateState.Checking, is UpdateState.Probing, is UpdateState.Downloading -> return
+            is UpdateState.Checking, is UpdateState.Probing, is UpdateState.Downloading,
+            is UpdateState.Verifying -> return
             else -> {}
         }
         checkJob = scope.launch { check() }
@@ -57,7 +67,7 @@ class AppUpdater(
 
     fun startDownload() {
         when (state.value) {
-            is UpdateState.Probing, is UpdateState.Downloading -> return
+            is UpdateState.Probing, is UpdateState.Downloading, is UpdateState.Verifying -> return
             else -> {}
         }
         val release = state.value.release?.takeIf { it.apk != null } ?: return
@@ -69,13 +79,16 @@ class AppUpdater(
         val release = when (val s = state.value) {
             is UpdateState.Probing -> s.release
             is UpdateState.Downloading -> s.release
+            is UpdateState.Verifying -> s.release
             else -> return
         }
         job.cancel()
         scope.launch {
             job.join()
-            downloadDir.listFiles()?.forEach { if (it.name.endsWith(".part")) it.delete() }
-            if (state.value is UpdateState.Probing || state.value is UpdateState.Downloading) {
+            activeDownloadId?.let { downloads.remove(it) }
+            activeDownloadId = null
+            val s = state.value
+            if (s is UpdateState.Probing || s is UpdateState.Downloading || s is UpdateState.Verifying) {
                 mutableState.value = UpdateState.Available(release)
             }
         }
@@ -126,31 +139,117 @@ class AppUpdater(
             .ifEmpty { sources }
     }
 
-    /** Probes every source, then streams the APK from the fastest that verifies. */
+    /** Probes every source, then hands the fastest working mirror to the system DownloadManager. */
     suspend fun download(release: ReleaseInfo) {
         val apk = release.apk ?: return
         mutableState.value = UpdateState.Probing(release)
-        downloadDir.mkdirs()
-        downloadDir.listFiles()?.forEach { it.delete() }
         val ranked = rankSources(apk)
+        val safeTag = release.tag.map {
+            if (it.isLetterOrDigit() || it == '.' || it == '_' || it == '-') it else '_'
+        }.joinToString("")
+        val fileName = "AI-intoU-$safeTag.apk"
         var lastError = "下载源不可用"
         for (source in ranked) {
-            val part = File(downloadDir, apk.name + ".part")
-            val error = streamTo(source, apk, part, release)
-            if (error == null) {
-                val target = File(downloadDir, apk.name)
-                if (part.renameTo(target)) {
-                    mutableState.value = UpdateState.Downloaded(release, source, target)
-                    return
-                }
-                lastError = "保存文件失败（${source.name}）"
-            } else {
-                lastError = error
+            val id = try {
+                downloads.enqueue(source.wrap(apk.url), fileName, "AI-intoU ${release.tag}", "从 ${source.name} 下载")
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // enqueue 失败是整个 DownloadManager 不可用，换源没有意义。
+                mutableState.value = UpdateState.Failed(
+                    "系统下载管理器不可用，请点「在浏览器中打开 Release 页面」手动下载",
+                    release,
+                )
+                return
             }
-            part.delete()
+            activeDownloadId = id
+            val error = pollDownload(release, source, apk, id)
+            activeDownloadId = null
+            if (error == null) return // 终态（完成 / 用户删除 / 包校验拒绝）已经写入 state
+            lastError = error
         }
-        downloadDir.listFiles()?.forEach { if (it.name.endsWith(".part")) it.delete() }
-        mutableState.value = UpdateState.Failed("所有下载源都失败了：$lastError", release)
+        mutableState.value = UpdateState.Failed("所有下载源都失败了：$lastError（损坏的安装包已删除）", release)
+    }
+
+    /**
+     * Polls one enqueued download until it finishes or stalls.
+     * Returns null once a terminal state has been published (the caller must
+     * stop), or a per-source failure string after removing the record.
+     */
+    private suspend fun pollDownload(
+        release: ReleaseInfo,
+        source: UpdateSource,
+        apk: ReleaseAsset,
+        id: Long,
+    ): String? {
+        val started = System.nanoTime()
+        var lastBytes = -1L
+        var lastProgressAt = started
+        while (true) {
+            coroutineContext.ensureActive()
+            val snapshot = downloads.query(id)
+                ?: run {
+                    // 用户从通知或「下载」应用里删掉了这条记录——回到可重试状态。
+                    mutableState.value = UpdateState.Available(release)
+                    return null
+                }
+            when (snapshot.status) {
+                DownloadStatus.PENDING, DownloadStatus.RUNNING, DownloadStatus.PAUSED -> {
+                    val total = if (apk.size > 0) apk.size else snapshot.total
+                    val elapsed = System.nanoTime() - started
+                    val bps = if (elapsed > 0) snapshot.downloaded * 1_000_000_000L / elapsed else 0L
+                    mutableState.value = UpdateState.Downloading(
+                        release, source, snapshot.downloaded, total, bps,
+                    )
+                    val now = System.nanoTime()
+                    if (snapshot.downloaded > lastBytes) {
+                        lastBytes = snapshot.downloaded
+                        lastProgressAt = now
+                    } else if (now - lastProgressAt >= stallTimeoutMs * 1_000_000L) {
+                        downloads.remove(id)
+                        return "${source.name}：下载停滞"
+                    }
+                }
+                DownloadStatus.FAILED -> {
+                    downloads.remove(id)
+                    return "${source.name}：下载失败（${snapshot.reason}）"
+                }
+                DownloadStatus.SUCCESSFUL -> return verify(release, source, apk, id)
+            }
+            delay(pollIntervalMs)
+        }
+    }
+
+    /** Same contract as [pollDownload]. Runs on Dispatchers.IO. */
+    private suspend fun verify(
+        release: ReleaseInfo,
+        source: UpdateSource,
+        apk: ReleaseAsset,
+        id: Long,
+    ): String? {
+        mutableState.value = UpdateState.Verifying(release, source)
+        return withContext(Dispatchers.IO) {
+            val file = downloads.localFile(id)
+            if (file == null || !file.exists()) {
+                downloads.remove(id)
+                return@withContext "无法读取下载文件（${source.name}）"
+            }
+            if (apk.size > 0 && file.length() != apk.size ||
+                (apk.sha256 != null && sha256(file) != apk.sha256)
+            ) {
+                downloads.remove(id)
+                return@withContext "校验失败（${source.name}）"
+            }
+            val problem = verifyPackage(file)
+            if (problem != null) {
+                // 文件本身与 GitHub 的摘要对得上，换源拿到的也是同样的字节——直接失败。
+                downloads.remove(id)
+                mutableState.value = UpdateState.Failed("$problem（已删除这个安装包）", release)
+                return@withContext null
+            }
+            mutableState.value = UpdateState.Downloaded(release, source, id)
+            null
+        }
     }
 
     private class ReleaseNotFound : Exception()
@@ -205,72 +304,18 @@ class AppUpdater(
         }
     }
 
-    /** Streams one source into [part]; null on success, a user-facing reason on failure. */
-    private suspend fun streamTo(
-        source: UpdateSource,
-        apk: ReleaseAsset,
-        part: File,
-        release: ReleaseInfo,
-    ): String? {
-        val request = Request.Builder().url(source.wrap(apk.url)).build()
-        return try {
-            client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return@use "${source.name}：HTTP ${response.code}"
-                val body = response.body ?: return@use "${source.name}：HTTP ${response.code}"
-                val expected = if (apk.size > 0) apk.size else body.contentLength()
-                val digest = MessageDigest.getInstance("SHA-256")
-                val buffer = ByteArray(64 * 1024)
-                var downloaded = 0L
-                var lastEmit = 0L
-                val started = System.nanoTime()
-                part.outputStream().use { out ->
-                    body.byteStream().use { input ->
-                        while (true) {
-                            coroutineContext.ensureActive()
-                            val n = input.read(buffer)
-                            if (n < 0) break
-                            out.write(buffer, 0, n)
-                            digest.update(buffer, 0, n)
-                            downloaded += n
-                            val now = System.nanoTime()
-                            if (now - lastEmit >= 150_000_000L) {
-                                lastEmit = now
-                                emitDownloading(release, source, downloaded, expected, started, now)
-                            }
-                        }
-                    }
-                }
-                val finished = System.nanoTime()
-                emitDownloading(release, source, downloaded, expected, started, finished)
-                yield() // 让 100% 的进度帧有机会渲染，也让取消在收尾前先落地
-                when {
-                    expected > 0 && downloaded != expected -> "校验失败（${source.name}）"
-                    apk.sha256 != null && hex(digest) != apk.sha256 -> "校验失败（${source.name}）"
-                    else -> null
-                }
+    private fun sha256(file: File): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        file.inputStream().use { input ->
+            val buffer = ByteArray(64 * 1024)
+            while (true) {
+                val n = input.read(buffer)
+                if (n < 0) break
+                digest.update(buffer, 0, n)
             }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            "${source.name}：${e.message ?: "网络错误"}"
         }
+        return digest.digest().joinToString("") { "%02x".format(it) }
     }
-
-    private fun emitDownloading(
-        release: ReleaseInfo,
-        source: UpdateSource,
-        downloaded: Long,
-        total: Long,
-        startedNanos: Long,
-        nowNanos: Long,
-    ) {
-        val elapsed = nowNanos - startedNanos
-        val bps = if (elapsed > 0) downloaded * 1_000_000_000L / elapsed else 0L
-        mutableState.value = UpdateState.Downloading(release, source, downloaded, total, bps)
-    }
-
-    private fun hex(digest: MessageDigest): String =
-        digest.digest().joinToString("") { "%02x".format(it) }
 
     companion object {
         private val CONTENT_RANGE = Regex("""bytes \d+-\d+/(\d+)""")
@@ -292,7 +337,8 @@ sealed interface UpdateState {
         val total: Long,
         val bytesPerSecond: Long,
     ) : UpdateState
-    data class Downloaded(val release: ReleaseInfo, val source: UpdateSource, val file: File) : UpdateState
+    data class Verifying(val release: ReleaseInfo, val source: UpdateSource) : UpdateState
+    data class Downloaded(val release: ReleaseInfo, val source: UpdateSource, val downloadId: Long) : UpdateState
     data class Failed(val message: String, val release: ReleaseInfo?) : UpdateState
 }
 
@@ -302,6 +348,7 @@ val UpdateState.release: ReleaseInfo?
         is UpdateState.Available -> release
         is UpdateState.Probing -> release
         is UpdateState.Downloading -> release
+        is UpdateState.Verifying -> release
         is UpdateState.Downloaded -> release
         is UpdateState.Failed -> release
         else -> null

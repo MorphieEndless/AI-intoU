@@ -33,6 +33,17 @@ object ApkVerifier {
         return null
     }
 
+    /** Size/SHA-256 are checked upstream; this adds package name, versionCode and signature vs the installed app. */
+    fun problemFor(context: Context, file: File): String? {
+        val installed = installedFacts(context)
+        return problem(
+            archive = archiveFacts(context, file),
+            expectedPackage = context.packageName,
+            installedVersionCode = installed?.versionCode ?: 0L,
+            installedCerts = installed?.certSha256,
+        )
+    }
+
     fun archiveFacts(context: Context, file: File): ArchiveFacts? {
         val pm = context.packageManager
         @Suppress("DEPRECATION")
