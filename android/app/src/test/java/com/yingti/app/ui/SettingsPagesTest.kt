@@ -52,9 +52,13 @@ class SettingsPagesTest {
     }
 
     @Test
-    fun nonOwnerNeverSeesAdmin() {
+    fun nonOwnerWithDevModeOnNeverSeesAdmin() {
         showSettings(devMode = true, showAdmin = false)
         compose.onNodeWithText("管理").assertDoesNotExist()
+    }
+
+    @Test
+    fun nonOwnerWithDevModeOffNeverSeesAdmin() {
         showSettings(devMode = false, showAdmin = false)
         compose.onNodeWithText("管理").assertDoesNotExist()
     }
