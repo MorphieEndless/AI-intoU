@@ -125,12 +125,11 @@ fun AiAccessScreen(
         val list = tokens
         val agents = list.orEmpty().filter { it.kind == "agent" && it.isActive }
         val phones = list.orEmpty().filter { it.kind == "phone" && it.isActive }
-        val inactive = list.orEmpty().count { !it.isActive }
 
         SettingsSection("AI 客户端") {
             when {
                 list == null && actions.busy -> Text("加载中…", style = MaterialTheme.typography.bodySmall)
-                list == null -> Text("还没加载，点右上角刷新。", style = MaterialTheme.typography.bodySmall)
+                list == null -> Text("还没加载，点右上角的「刷新」。", style = MaterialTheme.typography.bodySmall)
                 agents.isEmpty() -> Text(
                     "还没有 AI 接入。点上面的「新建 AI 接入」，选你用的 AI 客户端，把生成的配置复制进去即可。",
                     style = MaterialTheme.typography.bodySmall,
@@ -148,13 +147,6 @@ fun AiAccessScreen(
                     TokenRow(token, local = local, onRevoke = if (local) null else ({ revoking = token }))
                 }
             }
-        }
-        if (inactive > 0) {
-            Text(
-                "另有 $inactive 个已撤销或过期的 token 未显示。",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
         }
     }
 }
