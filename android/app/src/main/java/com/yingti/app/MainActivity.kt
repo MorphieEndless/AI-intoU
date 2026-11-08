@@ -65,9 +65,9 @@ enum class AppScreen {
     DASHBOARD, PATTERNS, LOGS, SETTINGS,
 
     /** Sub-pages of 设置: the bottom bar keeps 设置 highlighted, back returns to 设置. */
-    AI_ACCESS, ADMIN;
+    AI_ACCESS, ADMIN, UPDATE;
 
-    val parentTab: AppScreen get() = if (this == AI_ACCESS || this == ADMIN) SETTINGS else this
+    val parentTab: AppScreen get() = if (this == AI_ACCESS || this == ADMIN || this == UPDATE) SETTINGS else this
 }
 
 class MainActivity : ComponentActivity() {
@@ -361,6 +361,7 @@ class MainActivity : ComponentActivity() {
                                             aiWelcome = false
                                             screen = AppScreen.AI_ACCESS
                                         },
+                                        onCheckUpdate = { screen = AppScreen.UPDATE },
                                         configured = configured,
                                         onboarding = {
                                             val step = Onboarding.current(configured, toyConnected, aiAccessDone)
@@ -400,6 +401,10 @@ class MainActivity : ComponentActivity() {
                                 serverUrl = connectionConfig.normalizedBaseUrl,
                                 onBack = { screen = AppScreen.SETTINGS },
                                 onCopy = ::copyToClipboard,
+                            )
+                            AppScreen.UPDATE -> UpdateScreen(
+                                updater = app.updater,
+                                onBack = { screen = AppScreen.SETTINGS },
                             )
                         }
                     }
