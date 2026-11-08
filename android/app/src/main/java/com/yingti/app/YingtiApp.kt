@@ -45,7 +45,7 @@ class YingtiApp : Application() {
                 httpClient = ApiClient.defaultClient()
                 apiClient = ApiClient(httpClient)
                 history = ActivityStore(this@YingtiApp)
-                patternLibrary = PatternLibraryRepository({ PatternApi(it, httpClient) })
+                patternLibrary = PatternLibraryRepository({ PatternApi(it, httpClient) }, cacheDir = File(filesDir, "pattern_cache"))
                 updater = AppUpdater(
                     httpClient.newBuilder().readTimeout(30, TimeUnit.SECONDS).build(),
                     File(cacheDir, "updates"),

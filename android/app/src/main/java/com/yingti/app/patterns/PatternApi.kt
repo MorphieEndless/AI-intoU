@@ -2,7 +2,9 @@ package com.yingti.app.patterns
 
 import com.yingti.app.auth.ApiClient
 import com.yingti.app.auth.ConnectionConfig
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -15,6 +17,7 @@ import kotlin.coroutines.resumeWithException
 /** The app reads the MCP user's existing server library; it never scrapes tool prose. */
 interface LibraryApi {
     suspend fun list(offset: Int = 0, filter: String = "all", query: String = ""): PatternPage
+    suspend fun listIfChanged(offset: Int, filter: String, query: String, etag: String?): PatternPage = list(offset, filter, query)
     suspend fun get(id: String): JSONObject
     suspend fun patch(id: String, changes: JSONObject): JSONObject
     suspend fun delete(id: String)
@@ -25,36 +28,43 @@ class PatternApi(private val config: ConnectionConfig, base: OkHttpClient = ApiC
     private val client = base.newBuilder().callTimeout(20, TimeUnit.SECONDS)
         .followRedirects(false).followSslRedirects(false).build()
 
-    override suspend fun list(offset: Int, filter: String, query: String): PatternPage {
+    override suspend fun list(offset: Int, filter: String, query: String) = listIfChanged(offset, filter, query, null)
+    override suspend fun listIfChanged(offset: Int, filter: String, query: String, etag: String?): PatternPage {
         require(offset >= 0 && filter in listOf("all", "liked", "favorites") && query.length <= 120)
         val url = HttpUrl.Builder().scheme("https").host("example.com")
             .addQueryParameter("offset", offset.toString()).addQueryParameter("limit", "30")
             .addQueryParameter("include_steps", "true").addQueryParameter("filter", filter).addQueryParameter("q", query).build()
-        val json = JSONObject(request("GET", "?${url.encodedQuery}"))
-        val list = json.getJSONArray("patterns")
-        return PatternPage((0 until list.length()).map { PatternSummary.from(list.getJSONObject(it)) }, json.getInt("total"))
+        val reply = request("GET", "?${url.encodedQuery}", ifNoneMatch = etag)
+        if (reply.code == 304) return PatternPage(emptyList(), 0, reply.etag ?: etag, notModified = true)
+        return withContext(Dispatchers.Default) {
+            val json = JSONObject(reply.body)
+            val list = json.getJSONArray("patterns")
+            PatternPage((0 until list.length()).map { PatternSummary.from(list.getJSONObject(it)) }, json.getInt("total"), reply.etag)
+        }
     }
     override suspend fun get(id: String): JSONObject {
         validateId(id)
-        return JSONObject(request("GET", "/$id")).also { PatternDefinition.from(it) }
+        return JSONObject(request("GET", "/$id").body).also { PatternDefinition.from(it) }
     }
     override suspend fun patch(id: String, changes: JSONObject): JSONObject {
         validateId(id)
         require(changes.length() > 0 && changes.keys().asSequence().all { it in setOf("is_liked", "is_favorite", "description", "repeat") })
-        return JSONObject(request("PATCH", "/$id", changes)).also { PatternDefinition.from(it) }
+        return JSONObject(request("PATCH", "/$id", changes).body).also { PatternDefinition.from(it) }
     }
     override suspend fun restore(id: String): JSONObject {
         validateId(id)
-        return JSONObject(request("POST", "/$id/restore", JSONObject())).also { PatternDefinition.from(it) }
+        return JSONObject(request("POST", "/$id/restore", JSONObject()).body).also { PatternDefinition.from(it) }
     }
     private fun validateId(id: String) { require(id == "builtin-wave" || id.matches(Regex("[0-9a-f]{12}"))) }
     override suspend fun delete(id: String) {
         validateId(id)
         request("DELETE", "/$id")
     }
-    private suspend fun request(method: String, suffix: String, body: JSONObject? = null): String = suspendCancellableCoroutine { continuation ->
+    private class Reply(val code: Int, val body: String, val etag: String?)
+    private suspend fun request(method: String, suffix: String, body: JSONObject? = null, ifNoneMatch: String? = null): Reply = suspendCancellableCoroutine { continuation ->
         val request = Request.Builder().url(ConnectionConfig.resolveHttpPath(config.normalizedBaseUrl, "/patterns") + suffix)
             .header("Authorization", "Bearer ${config.token.trim()}").header("Accept", "application/json")
+            .apply { if (ifNoneMatch != null) header("If-None-Match", ifNoneMatch) }
             .method(method, body?.toString()?.toRequestBody("application/json; charset=utf-8".toMediaType())).build()
         val call = client.newCall(request)
         continuation.invokeOnCancellation { call.cancel() }
@@ -65,6 +75,7 @@ class PatternApi(private val config: ConnectionConfig, base: OkHttpClient = ApiC
             override fun onResponse(call: Call, response: Response) {
                 val result = runCatching {
                     response.use {
+                        if (it.code == 304 && ifNoneMatch != null) return@use Reply(304, "", it.header("ETag"))
                         check(it.isSuccessful) {
                             when (it.code) {
                                 401, 403 -> "波形库认证失败，请确认手机与 AI 使用同一用户的 Token"
@@ -78,7 +89,7 @@ class PatternApi(private val config: ConnectionConfig, base: OkHttpClient = ApiC
                         val source = it.body?.source() ?: error("波形库响应为空")
                         source.request(2_000_001)
                         check(source.buffer.size <= 2_000_000) { "波形库响应过大" }
-                        source.readUtf8()
+                        Reply(it.code, source.readUtf8(), it.header("ETag"))
                     }
                 }
                 if (continuation.isActive) result.fold({ continuation.resume(it) }, { continuation.resumeWithException(it) })
@@ -87,7 +98,7 @@ class PatternApi(private val config: ConnectionConfig, base: OkHttpClient = ApiC
     }
 }
 
-data class PatternPage(val patterns: List<PatternSummary>, val total: Int)
+data class PatternPage(val patterns: List<PatternSummary>, val total: Int, val etag: String? = null, val notModified: Boolean = false)
 data class PatternSummary(val id: String, val name: String, val description: String, val steps: Int, val repeat: Int, val totalMs: Long,
     val definition: PatternDefinition? = null) {
     companion object {
