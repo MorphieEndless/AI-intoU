@@ -43,8 +43,8 @@ private fun inviteStateLabel(state: String) = when (state) {
 }
 
 /**
- * Owner-only management (shown when 开发者模式 is on and the account is an
- * owner): invite codes and accounts. Server-side every call re-checks that the
+ * Owner-only management (shown to owner accounts; independent of 开发者模式):
+ * invite codes and accounts. Server-side every call re-checks that the
  * session belongs to an active owner.
  */
 @Composable
@@ -153,7 +153,7 @@ fun AdminScreen(
         SettingsSection("邀请码") {
             val list = invites
             when {
-                list == null -> Text(if (actions.busy) "加载中…" else "还没加载，点右上角刷新。", style = MaterialTheme.typography.bodySmall)
+                list == null -> Text(if (actions.busy) "加载中…" else "还没加载，点右上角的「刷新」。", style = MaterialTheme.typography.bodySmall)
                 list.isEmpty() -> Text("还没有生成过邀请码。", style = MaterialTheme.typography.bodySmall)
                 else -> list.forEach { invite -> InviteRow(invite) { revokingInvite = invite } }
             }
@@ -162,7 +162,7 @@ fun AdminScreen(
         SettingsSection("用户") {
             val list = users
             when {
-                list == null -> Text(if (actions.busy) "加载中…" else "还没加载，点右上角刷新。", style = MaterialTheme.typography.bodySmall)
+                list == null -> Text(if (actions.busy) "加载中…" else "还没加载，点右上角的「刷新」。", style = MaterialTheme.typography.bodySmall)
                 else -> list.forEach { user ->
                     UserRow(
                         user = user,

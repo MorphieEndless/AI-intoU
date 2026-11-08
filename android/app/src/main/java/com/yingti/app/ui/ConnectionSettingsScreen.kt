@@ -42,6 +42,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yingti.app.auth.AuthMode
 import com.yingti.app.auth.ConnectionConfig
+import com.yingti.app.update.UpdateSources
 
 /** 破坏性操作确认：要求手动输入的 Token 末尾位数（完整 Token 过长，逐字手打不现实）。 */
 private const val CONFIRM_TAIL_LENGTH = 20
@@ -69,6 +70,7 @@ fun ConnectionSettingsScreen(
     onClearHistory: () -> Unit = {},
     onRegister: (ConnectionConfig, String, String, Boolean) -> Unit = { _, _, _, _ -> },
     onOpenAiAccess: () -> Unit = {},
+    onCheckUpdate: () -> Unit = {},
     configured: Boolean = false,
     overlayEnabled: Boolean = true,
     overlayPermitted: Boolean = true,
@@ -448,11 +450,11 @@ fun ConnectionSettingsScreen(
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 OutlinedButton(
-                    onClick = { openProjectPage("https://github.com/MorphieEndless/AI-intoU/releases") },
+                    onClick = onCheckUpdate,
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text("检查更新") }
                 OutlinedButton(
-                    onClick = { openProjectPage("https://github.com/MorphieEndless/AI-intoU") },
+                    onClick = { openProjectPage(UpdateSources.REPO_PAGE) },
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text("作者信息") }
             }

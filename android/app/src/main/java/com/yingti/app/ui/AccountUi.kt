@@ -6,7 +6,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ArrowBack
-import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -120,7 +119,7 @@ fun SubPage(
             IconButton(onClick = onBack, modifier = Modifier.testTag("subpage-back")) { Icon(Icons.Outlined.ArrowBack, "返回") }
             Text(title, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(start = 4.dp).weight(1f))
             if (busy) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-            if (onRefresh != null) IconButton(onClick = onRefresh, enabled = !busy) { Icon(Icons.Outlined.Refresh, "刷新") }
+            if (onRefresh != null) TextButton(onClick = onRefresh, enabled = !busy, modifier = Modifier.testTag("subpage-refresh")) { Text("刷新", style = MaterialTheme.typography.labelLarge) }
         }
         Column(
             Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 8.dp),

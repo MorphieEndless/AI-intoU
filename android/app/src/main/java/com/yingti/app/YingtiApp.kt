@@ -6,6 +6,9 @@ import com.yingti.app.auth.ApiClient
 import com.yingti.app.auth.TokenStore
 import com.yingti.app.patterns.PatternApi
 import com.yingti.app.patterns.PatternLibraryRepository
+import com.yingti.app.update.AppUpdater
+import java.io.File
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.*
 import okhttp3.OkHttpClient
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -21,6 +24,8 @@ class YingtiApp : Application() {
     lateinit var history: ActivityStore
         private set
     lateinit var patternLibrary: PatternLibraryRepository
+        private set
+    lateinit var updater: AppUpdater
         private set
 
     private val initialization = CompletableDeferred<Unit>()
@@ -41,6 +46,11 @@ class YingtiApp : Application() {
                 apiClient = ApiClient(httpClient)
                 history = ActivityStore(this@YingtiApp)
                 patternLibrary = PatternLibraryRepository({ PatternApi(it, httpClient) })
+                updater = AppUpdater(
+                    httpClient.newBuilder().readTimeout(30, TimeUnit.SECONDS).build(),
+                    File(cacheDir, "updates"),
+                    BuildConfig.VERSION_NAME,
+                )
                 initialization.complete(Unit)
                 mutableReady.value = true
             } catch (e: Exception) {
