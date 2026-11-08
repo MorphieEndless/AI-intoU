@@ -79,8 +79,8 @@ fun SettingsPages(
     LaunchedEffect(devMode) { if (!devMode) debug = false }
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-            // 管理页：仅开发者模式 + owner 账号可见。
-            if (devMode && showAdmin && !debug) TextButton(onClick = onAdmin) { Text("管理") }
+            // 管理页：owner 账号可见，与开发者模式无关（开发者模式只控制协议调试）。
+            if (showAdmin && !debug) TextButton(onClick = onAdmin) { Text("管理") }
             if (devMode) TextButton(onClick = { debug = !debug }) { Text(if (debug) "返回设置" else "协议调试") }
             if (configured) TextButton(onClick = onLogout) { Text("退出连接") }
         }
