@@ -164,7 +164,10 @@ class AppUpdater(
             when {
                 response.code == 404 -> throw ReleaseNotFound()
                 !response.isSuccessful -> throw java.io.IOException("HTTP ${response.code}")
-                else -> return ReleaseParser.parse(response.body.string())
+                else -> {
+                    val body = response.body ?: throw java.io.IOException("HTTP ${response.code}")
+                    return ReleaseParser.parse(body.string())
+                }
             }
         }
     }
@@ -176,7 +179,7 @@ class AppUpdater(
             .build()
         probeClient.newCall(request).execute().use { response ->
             if (response.code != 200 && response.code != 206) return false
-            val body = response.body
+            val body = response.body ?: return false
             val buffer = ByteArray(65536)
             var total = 0
             body.byteStream().use { input ->
@@ -213,7 +216,7 @@ class AppUpdater(
         return try {
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) return@use "${source.name}：HTTP ${response.code}"
-                val body = response.body
+                val body = response.body ?: return@use "${source.name}：HTTP ${response.code}"
                 val expected = if (apk.size > 0) apk.size else body.contentLength()
                 val digest = MessageDigest.getInstance("SHA-256")
                 val buffer = ByteArray(64 * 1024)
