@@ -3,6 +3,8 @@ package com.yingti.app.update
 import android.app.Application
 import android.app.DownloadManager
 import android.content.Context
+import android.os.Environment
+import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -39,14 +41,15 @@ class AndroidSystemDownloadsTest {
         )
         assertEquals("AI-intoU v0.19.0", request.title.toString())
         assertEquals("从 GitHub 官方 下载", request.description.toString())
-        val destination = request.destination.path.orEmpty()
-        assertTrue(destination.contains(context.packageName))
-        assertTrue(destination.endsWith("files/Download/AI-intoU-v0.19.0.apk"))
+        // Robolectric 的 getExternalFilesDir 与真机目录结构不同，按 Context 实际返回值比对。
+        val expected = File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "AI-intoU-v0.19.0.apk")
+        assertTrue(expected.path.contains(context.packageName))
+        assertEquals(expected.path, request.destination.path)
 
         assertNotNull(downloads.query(id))
         request.status = DownloadManager.STATUS_RUNNING
         assertEquals(DownloadStatus.RUNNING, downloads.query(id)!!.status)
-        assertNotNull(downloads.localFile(id))
+        assertEquals(expected.path, downloads.localFile(id)?.path)
         downloads.remove(id)
         assertNull(downloads.query(id))
     }

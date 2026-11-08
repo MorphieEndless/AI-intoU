@@ -65,6 +65,7 @@ class AppUpdaterTest {
         val enqueued = mutableListOf<Pair<String, String>>()
         val removed = mutableListOf<Long>()
         var enqueueError: Exception? = null
+        var enqueueAttempts = 0
 
         private var nextId = 1L
         private val ids = mutableMapOf<Long, Pair<String, String>>()
@@ -82,6 +83,7 @@ class AppUpdaterTest {
         }
 
         override fun enqueue(url: String, fileName: String, title: String, description: String): Long {
+            enqueueAttempts++
             enqueueError?.let { throw it }
             enqueued += url to fileName
             val id = nextId++
@@ -401,14 +403,17 @@ class AppUpdaterTest {
     fun enqueueFailureFallsBackToBrowser() = runBlocking {
         fakeDownloads.enqueueError = IllegalArgumentException("DownloadManager disabled")
         val m1 = mirror("m1")
-        val u = updater(sources = listOf(m1))
+        val m2 = mirror("m2")
+        val u = updater(sources = listOf(m1, m2))
         u.download(release())
         val s = u.state.value
         assertTrue(s is UpdateState.Failed)
         s as UpdateState.Failed
         assertNotNull(s.release)
         assertTrue(s.message.contains("浏览器"))
-        assertEquals(1, fakeDownloads.enqueued.size)
+        // enqueue 失败是 DownloadManager 整体不可用：只尝试一次，不换源。
+        assertEquals(1, fakeDownloads.enqueueAttempts)
+        assertTrue(fakeDownloads.enqueued.isEmpty())
     }
 
     @Test
