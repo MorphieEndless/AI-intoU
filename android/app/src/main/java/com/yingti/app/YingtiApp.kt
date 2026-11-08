@@ -13,7 +13,6 @@ import kotlinx.coroutines.*
 import okhttp3.OkHttpClient
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import java.io.File
 
 class YingtiApp : Application() {
     lateinit var tokenStore: TokenStore
