@@ -100,7 +100,23 @@ CI 也会跑同一套检查（`.github/workflows/secret-scan.yml`）。
 
 ---
 
-## 5. 已经泄露了怎么办
+## 5. 更新说明写法
+
+每个版本的更新说明（`docs/release-notes/vX.Y.Z.md`，文件内容即 GitHub Release 正文）
+统一分两部分：
+
+- **「客户端」**：本版 App 的新功能、修复与升级注意；
+- **「服务端」**：本版服务端有改动时必填，且必须**原句**写明
+  「此版本服务端需要更新至 vX.Y.Z 版本以适配」——`vX.Y.Z` 填兼容所需的最低服务端 tag
+  （本仓库按 tag 定版本，例如 `v0.19.3`），其后再列变更点与升级步骤；
+- 本版服务端**没有改动**时，「服务端」一节可整节省略。
+
+模板见 [`docs/release-notes/README.md`](docs/release-notes/README.md)；
+发布流程（tag → release.yml）见 [`docs/AGENT-WORKFLOW.md`](docs/AGENT-WORKFLOW.md) §6。
+
+---
+
+## 6. 已经泄露了怎么办
 
 按顺序做，不要跳步：
 

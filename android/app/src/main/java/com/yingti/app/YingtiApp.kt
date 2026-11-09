@@ -6,6 +6,7 @@ import com.yingti.app.auth.ApiClient
 import com.yingti.app.auth.TokenStore
 import com.yingti.app.patterns.PatternApi
 import com.yingti.app.patterns.PatternLibraryRepository
+import com.yingti.app.patterns.PatternStatsStore
 import com.yingti.app.update.AndroidSystemDownloads
 import com.yingti.app.update.ApkVerifier
 import com.yingti.app.update.AppUpdater
@@ -24,6 +25,8 @@ class YingtiApp : Application() {
     lateinit var apiClient: ApiClient
         private set
     lateinit var history: ActivityStore
+        private set
+    lateinit var patternStats: PatternStatsStore
         private set
     lateinit var patternLibrary: PatternLibraryRepository
         private set
@@ -47,6 +50,7 @@ class YingtiApp : Application() {
                 httpClient = ApiClient.defaultClient()
                 apiClient = ApiClient(httpClient)
                 history = ActivityStore(this@YingtiApp)
+                patternStats = PatternStatsStore(File(filesDir, "pattern-stats.json"))
                 patternLibrary = PatternLibraryRepository({ PatternApi(it, httpClient) }, cacheDir = File(filesDir, "pattern_cache"))
                 updater = AppUpdater(
                     client = httpClient.newBuilder().readTimeout(30, TimeUnit.SECONDS).build(),

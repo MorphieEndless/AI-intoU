@@ -12,6 +12,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -21,17 +22,41 @@ import java.time.format.DateTimeFormatter
 import java.time.temporal.TemporalAdjusters
 
 @Composable
-fun ActivityScreen(history: ActivityHistory) {
+fun ActivityScreen(
+    history: ActivityHistory,
+    onRecordingChange: (Boolean) -> Unit = {},
+    onClearEvents: () -> Unit = {},
+) {
     var source by remember { mutableStateOf<OperationSource?>(null) }
+    var confirmClear by remember { mutableStateOf(false) }
     // 页头（标题、热力图、筛选）固定，只有下方日志列表滚动。
     Column(Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
         Row(
             Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("日志", style = MaterialTheme.typography.headlineSmall)
+            Text("日志", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
+            Text("记录日志", style = MaterialTheme.typography.labelMedium)
+            Switch(
+                checked = history.recording,
+                onCheckedChange = onRecordingChange,
+                modifier = Modifier.testTag("log-recording-switch"),
+            )
+            TextButton(
+                onClick = { confirmClear = true },
+                enabled = history.events.isNotEmpty(),
+                modifier = Modifier.testTag("log-clear"),
+            ) { Text("清空") }
         }
         UsageHeatmap(history.days)
+        if (!history.recording) {
+            Text(
+                "已暂停记录日志，新操作不会写入；使用频率统计照常累计。",
+                Modifier.padding(top = 8.dp),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.secondary,
+            )
+        }
         if (history.storageError) {
             Text(
                 "本地记录写入异常，当前显示可能尚未保存。",
@@ -58,6 +83,26 @@ fun ActivityScreen(history: ActivityHistory) {
             if (visible.isEmpty()) item { Text("暂无操作记录。连接设备后的新操作会显示在这里。") }
             items(visible, key = { it.id }) { event -> LogEntry(event) }
         }
+    }
+    if (confirmClear) {
+        AlertDialog(
+            onDismissRequest = { confirmClear = false },
+            title = { Text("清空日志？") },
+            text = { Text("将删除当前全部日志条目，不可恢复。上方「使用频率」统计不受影响。") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onClearEvents()
+                        confirmClear = false
+                    },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                    modifier = Modifier.testTag("log-clear-confirm"),
+                ) { Text("清空") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmClear = false }) { Text("取消") }
+            },
+        )
     }
 }
 

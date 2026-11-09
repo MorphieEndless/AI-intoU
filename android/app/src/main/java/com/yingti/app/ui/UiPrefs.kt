@@ -19,6 +19,7 @@ object UiPrefs {
     private const val KEY_OVERLAY_PROMPT_DISMISSED = "overlay_prompt_dismissed"
     private const val KEY_OVERLAY_X = "overlay_x"
     private const val KEY_OVERLAY_Y = "overlay_y"
+    private const val KEY_DEVICE_ALIAS = "device_alias"
 
     private fun prefs(context: Context) =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -82,5 +83,16 @@ object UiPrefs {
 
     fun setOverlayPosition(context: Context, x: Int, y: Int) {
         prefs(context).edit().putInt(KEY_OVERLAY_X, x).putInt(KEY_OVERLAY_Y, y).apply()
+    }
+
+    /** 主页设备卡显示的本地别名；null / 空白表示恢复 BLE 上报名。仅存本机，不上服务器。 */
+    fun deviceAlias(context: Context): String? =
+        prefs(context).getString(KEY_DEVICE_ALIAS, null)?.let { DeviceAlias.normalize(it) }
+
+    fun setDeviceAlias(context: Context, alias: String?) {
+        val normalized = alias?.let { DeviceAlias.normalize(it) }
+        val editor = prefs(context).edit()
+        if (normalized == null) editor.remove(KEY_DEVICE_ALIAS) else editor.putString(KEY_DEVICE_ALIAS, normalized)
+        editor.apply()
     }
 }

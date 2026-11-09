@@ -106,6 +106,8 @@ class MainActivity : ComponentActivity() {
                 var aiWelcome by remember { mutableStateOf(false) }
                 var aiAccessDone by remember { mutableStateOf(UiPrefs.aiAccessDone(context)) }
                 var onboardingDismissed by remember { mutableStateOf(UiPrefs.onboardingDismissed(context)) }
+                var onboardingReplay by remember { mutableStateOf<Int?>(null) }
+                var deviceAlias by remember { mutableStateOf(UiPrefs.deviceAlias(context)) }
                 var overlayEnabled by remember { mutableStateOf(UiPrefs.overlayEnabled(context)) }
                 var overlayPermitted by remember { mutableStateOf(android.provider.Settings.canDrawOverlays(context)) }
                 var overlayPromptDismissed by remember { mutableStateOf(UiPrefs.overlayPromptDismissed(context)) }
@@ -272,6 +274,11 @@ class MainActivity : ComponentActivity() {
                                         screen = AppScreen.SETTINGS
                                     },
                                     onLogout = ::logout,
+                                    deviceAlias = deviceAlias,
+                                    onRenameDevice = {
+                                        deviceAlias = it
+                                        UiPrefs.setDeviceAlias(context, it)
+                                    },
                                 )
                             }
                             AppScreen.PATTERNS -> if (!configured) {
@@ -306,7 +313,11 @@ class MainActivity : ComponentActivity() {
                             }
                             AppScreen.LOGS -> {
                                 val history by app.history.state.collectAsStateWithLifecycle()
-                                ActivityScreen(history)
+                                ActivityScreen(
+                                    history,
+                                    onRecordingChange = app.history::setRecording,
+                                    onClearEvents = app.history::clearEvents,
+                                )
                             }
                             AppScreen.SETTINGS -> {
                                 val lastMessage = bridge.lastMessage
@@ -355,7 +366,10 @@ class MainActivity : ComponentActivity() {
                                             saveAndStart(config, password, rememberPassword)
                                         },
                                         onCopy = ::copyToClipboard,
-                                        onClearHistory = app.history::clear,
+                                        onClearHistory = {
+                                            app.history.clear()
+                                            app.patternStats.clear()
+                                        },
                                         onRegister = ::registerAndStart,
                                         onOpenAiAccess = {
                                             aiWelcome = false
@@ -365,7 +379,7 @@ class MainActivity : ComponentActivity() {
                                         configured = configured,
                                         onboarding = {
                                             val step = Onboarding.current(configured, toyConnected, aiAccessDone)
-                                            if (Onboarding.visible(step, onboardingDismissed)) {
+                                            if (Onboarding.visible(step, onboardingDismissed, replaying = onboardingReplay != null)) {
                                                 OnboardingCard(
                                                     step = step,
                                                     toyConnected = toyConnected,
@@ -375,11 +389,21 @@ class MainActivity : ComponentActivity() {
                                                         screen = AppScreen.AI_ACCESS
                                                     },
                                                     onDismiss = {
+                                                        onboardingReplay = null
                                                         onboardingDismissed = true
                                                         UiPrefs.setOnboardingDismissed(context, true)
                                                     },
+                                                    replayIndex = onboardingReplay,
+                                                    onReplayNext = {
+                                                        onboardingReplay = onboardingReplay?.let(Onboarding::nextReplay)
+                                                    },
                                                 )
                                             }
+                                        },
+                                        onReplayOnboarding = {
+                                            onboardingDismissed = false
+                                            UiPrefs.setOnboardingDismissed(context, false)
+                                            onboardingReplay = 0
                                         },
                                     )
                                 }
