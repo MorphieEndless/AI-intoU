@@ -93,7 +93,10 @@ fun DashboardScreen(
     onLogout: () -> Unit,
     onRawFrame: (String) -> Unit = {},
     onSuction: (Double, Int) -> Unit = { _, _ -> },
+    deviceAlias: String? = null,
+    onRenameDevice: (String?) -> Unit = {},
 ) {
+    var showRename by remember { mutableStateOf(false) }
     var slider by remember { mutableFloatStateOf(state.intensity / 10f) }
     var dragging by remember { mutableStateOf(false) }
     LaunchedEffect(state.intensity) { if (!dragging) slider = state.intensity / 10f }
@@ -158,7 +161,14 @@ fun DashboardScreen(
                     // 设备卡头部：设备名 + 状态在左，红色急停按钮固定在右上角（v0.11.1 起）。
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
-                            Text(state.deviceName ?: "SX589B", style = MaterialTheme.typography.titleLarge)
+                            // 点按设备名可设置本机别名；BLE 上报名不受影响。
+                            Text(
+                                DeviceAlias.displayName(deviceAlias, state.deviceName),
+                                style = MaterialTheme.typography.titleLarge,
+                                modifier = Modifier
+                                    .clickable(onClickLabel = "修改设备名") { showRename = true }
+                                    .testTag("device-name"),
+                            )
                             Text(state.lastMessage, color = MaterialTheme.colorScheme.secondary)
                         }
                         Box(
@@ -252,6 +262,35 @@ fun DashboardScreen(
 
             Spacer(Modifier.height(8.dp))
         }
+    }
+
+    if (showRename) {
+        var aliasInput by remember { mutableStateOf(deviceAlias.orEmpty()) }
+        AlertDialog(
+            onDismissRequest = { showRename = false },
+            title = { Text("修改设备名") },
+            text = {
+                OutlinedTextField(
+                    value = aliasInput,
+                    onValueChange = { if (DeviceAlias.length(it) <= DeviceAlias.MAX_LENGTH) aliasInput = it },
+                    singleLine = true,
+                    placeholder = { Text(state.deviceName ?: DeviceAlias.DEFAULT_NAME) },
+                    supportingText = {
+                        Text("留空保存即恢复默认名称 · ${DeviceAlias.length(aliasInput)}/${DeviceAlias.MAX_LENGTH}")
+                    },
+                    modifier = Modifier.fillMaxWidth().testTag("device-alias-input"),
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    onRenameDevice(DeviceAlias.normalize(aliasInput))
+                    showRename = false
+                }) { Text("保存") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRename = false }) { Text("取消") }
+            },
+        )
     }
 }
 

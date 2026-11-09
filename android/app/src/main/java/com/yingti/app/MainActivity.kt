@@ -107,6 +107,7 @@ class MainActivity : ComponentActivity() {
                 var aiAccessDone by remember { mutableStateOf(UiPrefs.aiAccessDone(context)) }
                 var onboardingDismissed by remember { mutableStateOf(UiPrefs.onboardingDismissed(context)) }
                 var onboardingReplay by remember { mutableStateOf<Int?>(null) }
+                var deviceAlias by remember { mutableStateOf(UiPrefs.deviceAlias(context)) }
                 var overlayEnabled by remember { mutableStateOf(UiPrefs.overlayEnabled(context)) }
                 var overlayPermitted by remember { mutableStateOf(android.provider.Settings.canDrawOverlays(context)) }
                 var overlayPromptDismissed by remember { mutableStateOf(UiPrefs.overlayPromptDismissed(context)) }
@@ -273,6 +274,11 @@ class MainActivity : ComponentActivity() {
                                         screen = AppScreen.SETTINGS
                                     },
                                     onLogout = ::logout,
+                                    deviceAlias = deviceAlias,
+                                    onRenameDevice = {
+                                        deviceAlias = it
+                                        UiPrefs.setDeviceAlias(context, it)
+                                    },
                                 )
                             }
                             AppScreen.PATTERNS -> if (!configured) {
