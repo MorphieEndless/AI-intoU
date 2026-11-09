@@ -25,8 +25,8 @@ class PatternStatsTest {
 
     @Test fun tiesBreakByLastPlayedThenName() {
         val s = PatternStats(mapOf(
-            "z" to stat("z", 1, last = 10, name = "乙"),
-            "a" to stat("a", 1, last = 10, name = "甲"),
+            "z" to stat("z", 1, last = 10, name = "Zulu"),
+            "a" to stat("a", 1, last = 10, name = "Alpha"),
             "r" to stat("r", 1, last = 20, name = "丙"),
         ))
         assertEquals(listOf("r", "a", "z"), s.top(3).map { it.id })
