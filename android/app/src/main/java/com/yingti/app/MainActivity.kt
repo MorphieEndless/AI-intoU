@@ -366,7 +366,10 @@ class MainActivity : ComponentActivity() {
                                             saveAndStart(config, password, rememberPassword)
                                         },
                                         onCopy = ::copyToClipboard,
-                                        onClearHistory = app.history::clear,
+                                        onClearHistory = {
+                                            app.history.clear()
+                                            app.patternStats.clear()
+                                        },
                                         onRegister = ::registerAndStart,
                                         onOpenAiAccess = {
                                             aiWelcome = false

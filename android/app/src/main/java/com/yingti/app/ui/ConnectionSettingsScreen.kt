@@ -153,7 +153,7 @@ fun ConnectionSettingsScreen(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(
-                        "将永久抹除本机保存的全部操作日志及使用频率统计，不可恢复。云端波形与硬件不受影响。",
+                        "将永久抹除本机保存的全部操作日志、使用频率及波形播放统计，不可恢复。云端波形与硬件不受影响。",
                         style = MaterialTheme.typography.bodyMedium,
                     )
                     Text(
@@ -487,7 +487,7 @@ fun ConnectionSettingsScreen(
                         color = MaterialTheme.colorScheme.error,
                     )
                     Text(
-                        "清除本机记录的操作日志与使用频率统计，此操作无法撤销。",
+                        "清除本机记录的操作日志、使用频率及波形播放统计，此操作无法撤销。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

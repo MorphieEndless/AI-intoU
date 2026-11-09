@@ -4,6 +4,7 @@ import com.yingti.app.AppState
 import com.yingti.app.PausedOutput
 import com.yingti.app.ToyControl
 import com.yingti.app.patterns.PatternPlayback
+import com.yingti.app.patterns.PatternPlayRecorder
 import com.yingti.app.history.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -21,6 +22,7 @@ class CommandDispatcher(
     private val ble: ToyOutput,
     private val scope: CoroutineScope,
     private val history: ActivityStore,
+    private val patternStats: PatternPlayRecorder? = null,
     private val nanoTime: () -> Long = System::nanoTime,
 ) : RelayCommands {
     override suspend fun dispatch(command: JSONObject): JSONObject = dispatch(command, OperationSource.AI)
@@ -223,7 +225,12 @@ class CommandDispatcher(
         }
     }
 
-    private fun launchPattern(event: String, cleanup: suspend () -> Unit, patternId: String? = null, totalMs: Long = 0, block: suspend (PauseGate) -> Unit): Job {
+    /**
+     * played = (统计 id, 显示名)；只有整个波形自然播完（status == DONE，含暂停后继续播完）
+     * 才记一次「成功播放」。被停止 / 被新指令替换 / 执行失败 / 清理失败都不计——
+     * 所以 duration ≤ 0 的内置波形只能被停止，永远不会被计入。
+     */
+    private fun launchPattern(event: String, cleanup: suspend () -> Unit, patternId: String? = null, totalMs: Long = 0, played: Pair<String, String>? = null, block: suspend (PauseGate) -> Unit): Job {
         val thisGate = PauseGate()
         gate = thisGate
         return scope.launch {
@@ -244,6 +251,9 @@ class CommandDispatcher(
                     if (state.patternPlayback?.event == event) state.copy(patternPlayback = null) else state
                 }
                 history.update(event, status)
+                if (status == OperationStatus.DONE) played?.let { (id, name) ->
+                    runCatching { patternStats?.recordSuccess(id, name) }
+                }
             }
         }
     }
@@ -317,8 +327,13 @@ class CommandDispatcher(
             else -> 0L
         }
 
+        val played = when (name) {
+            "pulse" -> "pattern:pulse" to "脉冲"
+            "wave" -> "pattern:wave" to "波浪"
+            else -> "pattern:escalate" to "渐强"
+        }
         cancelJobs()
-        activeJob = launchPattern(event, cleanup = { writer(0.0).getOrThrow() }, totalMs = totalMs) { g ->
+        activeJob = launchPattern(event, cleanup = { writer(0.0).getOrThrow() }, totalMs = totalMs, played = played) { g ->
             when (name) {
                 "pulse" -> runPulse(g, measuredWriter, intensity, duration)
                 "wave" -> runWave(g, measuredWriter, intensity, duration)
@@ -364,8 +379,12 @@ class CommandDispatcher(
 
         cancelJobs()
         val name = cmd.optString("name", "custom")
+        // 统计 id 优先用波形库 / 服务端传来的 id，否则按名字兜底；显示名最长 40。
+        val statId = cmd.optString("id").takeIf { it.isNotBlank() } ?: "name:$name"
+        val statName = cmd.optString("name").takeIf { it.isNotBlank() }?.take(40) ?: statId.take(40)
         activeJob = launchPattern(event, cleanup = { ble.stopAll().getOrThrow() },
-            patternId = cmd.optString("id").takeIf { it.isNotBlank() }, totalMs = steps.sumOf { it.durationMs } * repetitions) { g ->
+            patternId = cmd.optString("id").takeIf { it.isNotBlank() }, totalMs = steps.sumOf { it.durationMs } * repetitions,
+            played = statId to statName) { g ->
                 var counted = false
                 var lastVibrateLevel: Int? = null
                 var lastSuctionLevel: Int? = null

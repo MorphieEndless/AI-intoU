@@ -60,7 +60,7 @@ class RelayService : Service() {
         initialized = scope.async {
             val app = application as YingtiApp
             app.awaitReady()
-            dispatcher = CommandDispatcher(ble, scope, app.history)
+            dispatcher = CommandDispatcher(ble, scope, app.history, app.patternStats)
         }
         AppState.update { it.copy(serviceRunning = true, lastMessage = "服务已启动") }
     }
