@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import com.yingti.app.auth.AuthMode
 import com.yingti.app.auth.ConnectionConfig
 import com.yingti.app.update.UpdateSources
+import kotlinx.coroutines.launch
 
 /** 破坏性操作确认：要求手动输入的 Token 末尾位数（完整 Token 过长，逐字手打不现实）。 */
 private const val CONFIRM_TAIL_LENGTH = 20
@@ -71,6 +72,7 @@ fun ConnectionSettingsScreen(
     onRegister: (ConnectionConfig, String, String, Boolean) -> Unit = { _, _, _, _ -> },
     onOpenAiAccess: () -> Unit = {},
     onCheckUpdate: () -> Unit = {},
+    onReplayOnboarding: () -> Unit = {},
     configured: Boolean = false,
     overlayEnabled: Boolean = true,
     overlayPermitted: Boolean = true,
@@ -253,8 +255,11 @@ fun ConnectionSettingsScreen(
             }
         },
     ) { padding ->
+        // 引导卡在列顶；「新手引导重放」点击后回到顶部让它进入视野。
+        val scroll = rememberScrollState()
+        val scope = rememberCoroutineScope()
         Column(
-            Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState())
+            Modifier.padding(padding).fillMaxSize().verticalScroll(scroll)
                 .padding(horizontal = 20.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
@@ -453,6 +458,13 @@ fun ConnectionSettingsScreen(
                     onClick = onCheckUpdate,
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text("检查更新") }
+                OutlinedButton(
+                    onClick = {
+                        onReplayOnboarding()
+                        scope.launch { scroll.animateScrollTo(0) }
+                    },
+                    modifier = Modifier.fillMaxWidth().testTag("replay-onboarding"),
+                ) { Text("新手引导重放") }
                 OutlinedButton(
                     onClick = { openProjectPage(UpdateSources.REPO_PAGE) },
                     modifier = Modifier.fillMaxWidth(),

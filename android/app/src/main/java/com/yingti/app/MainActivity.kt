@@ -106,6 +106,7 @@ class MainActivity : ComponentActivity() {
                 var aiWelcome by remember { mutableStateOf(false) }
                 var aiAccessDone by remember { mutableStateOf(UiPrefs.aiAccessDone(context)) }
                 var onboardingDismissed by remember { mutableStateOf(UiPrefs.onboardingDismissed(context)) }
+                var onboardingReplay by remember { mutableStateOf<Int?>(null) }
                 var overlayEnabled by remember { mutableStateOf(UiPrefs.overlayEnabled(context)) }
                 var overlayPermitted by remember { mutableStateOf(android.provider.Settings.canDrawOverlays(context)) }
                 var overlayPromptDismissed by remember { mutableStateOf(UiPrefs.overlayPromptDismissed(context)) }
@@ -369,7 +370,7 @@ class MainActivity : ComponentActivity() {
                                         configured = configured,
                                         onboarding = {
                                             val step = Onboarding.current(configured, toyConnected, aiAccessDone)
-                                            if (Onboarding.visible(step, onboardingDismissed)) {
+                                            if (Onboarding.visible(step, onboardingDismissed, replaying = onboardingReplay != null)) {
                                                 OnboardingCard(
                                                     step = step,
                                                     toyConnected = toyConnected,
@@ -379,11 +380,21 @@ class MainActivity : ComponentActivity() {
                                                         screen = AppScreen.AI_ACCESS
                                                     },
                                                     onDismiss = {
+                                                        onboardingReplay = null
                                                         onboardingDismissed = true
                                                         UiPrefs.setOnboardingDismissed(context, true)
                                                     },
+                                                    replayIndex = onboardingReplay,
+                                                    onReplayNext = {
+                                                        onboardingReplay = onboardingReplay?.let(Onboarding::nextReplay)
+                                                    },
                                                 )
                                             }
+                                        },
+                                        onReplayOnboarding = {
+                                            onboardingDismissed = false
+                                            UiPrefs.setOnboardingDismissed(context, false)
+                                            onboardingReplay = 0
                                         },
                                     )
                                 }

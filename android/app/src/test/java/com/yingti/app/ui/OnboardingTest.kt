@@ -29,4 +29,15 @@ class OnboardingTest {
         assertFalse(Onboarding.visible(OnboardingStep.TOY, dismissed = true))
         assertFalse(Onboarding.visible(OnboardingStep.DONE, dismissed = false))
     }
+
+    @Test fun replayForcesVisibilityEvenWhenDoneAndDismissed() {
+        assertTrue(Onboarding.visible(OnboardingStep.DONE, dismissed = true, replaying = true))
+        assertFalse(Onboarding.visible(OnboardingStep.DONE, dismissed = true, replaying = false))
+    }
+
+    @Test fun nextReplayStepsThroughAllCards() {
+        assertEquals(1, Onboarding.nextReplay(0))
+        assertEquals(2, Onboarding.nextReplay(1))
+        assertNull(Onboarding.nextReplay(2))
+    }
 }

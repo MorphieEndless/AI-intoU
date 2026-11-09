@@ -7,6 +7,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
@@ -22,8 +23,15 @@ object Onboarding {
         else -> OnboardingStep.DONE
     }
 
-    /** 引导卡显示条件：没收起、也没全部完成。 */
-    fun visible(step: OnboardingStep, dismissed: Boolean): Boolean = !dismissed && step != OnboardingStep.DONE
+    /** 引导卡的步数；重放按序号逐步推进，与真实进度无关。 */
+    const val STEP_COUNT = 3
+
+    /** 引导卡显示条件：重放中无条件显示，否则没收起、也没全部完成。 */
+    fun visible(step: OnboardingStep, dismissed: Boolean, replaying: Boolean = false): Boolean =
+        replaying || (!dismissed && step != OnboardingStep.DONE)
+
+    /** 重放的下一步序号；走完最后一步返回 null，卡片回落到普通显示规则。 */
+    fun nextReplay(index: Int): Int? = (index + 1).takeIf { it < STEP_COUNT }
 }
 
 private data class StepText(val step: OnboardingStep, val title: String, val detail: String)
@@ -41,8 +49,12 @@ fun OnboardingCard(
     onOpenToy: () -> Unit,
     onOpenAiAccess: () -> Unit,
     onDismiss: () -> Unit,
+    replayIndex: Int? = null,
+    onReplayNext: () -> Unit = {},
 ) {
-    val currentIndex = STEPS.indexOfFirst { it.step == step }.let { if (it < 0) STEPS.size else it }
+    // 重放模式只按 replayIndex 逐步点亮，完全忽略真实完成进度。
+    val currentIndex = replayIndex
+        ?: STEPS.indexOfFirst { it.step == step }.let { if (it < 0) STEPS.size else it }
     Surface(
         color = MaterialTheme.colorScheme.primaryContainer,
         shape = MaterialTheme.shapes.extraLarge,
@@ -50,7 +62,7 @@ fun OnboardingCard(
         Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    "三步开始使用",
+                    if (replayIndex != null) "新手引导" else "三步开始使用",
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.onPrimaryContainer,
                     modifier = Modifier.weight(1f),
@@ -58,7 +70,8 @@ fun OnboardingCard(
                 TextButton(onClick = onDismiss) { Text("收起") }
             }
             STEPS.forEachIndexed { index, item ->
-                val done = index < currentIndex || (item.step == OnboardingStep.TOY && toyConnected)
+                val done = index < currentIndex ||
+                    (replayIndex == null && item.step == OnboardingStep.TOY && toyConnected)
                 val active = index == currentIndex
                 Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Box(
@@ -98,6 +111,16 @@ fun OnboardingCard(
                                 else -> Unit
                             }
                         }
+                    }
+                }
+            }
+            if (replayIndex != null) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    TextButton(
+                        onClick = onReplayNext,
+                        modifier = Modifier.testTag("onboarding-replay-next"),
+                    ) {
+                        Text(if (replayIndex == STEPS.size - 1) "完成" else "下一步")
                     }
                 }
             }
