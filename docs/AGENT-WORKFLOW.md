@@ -162,6 +162,8 @@ git hash-object <file> ...     # 推送前
   上面那个 Dockerfile 问题就是这样藏了很久。任何"线上是怎么跑的"结论都必须实地确认。
 - **发版只走 tag**：推送 `v*` tag 触发 `release.yml`，构建签名包并发布为正式 Release；
   `build-apk.yml` 不再发布任何预发布，构建产物只进 Actions artifact。
+- **更新说明写法**：每个版本的 Release 正文按 `AGENTS.md` §5 分「客户端 / 服务端」两部分，
+  模板与文件命名规则见 `docs/release-notes/README.md`。
 
 ### 泄露门禁
 
