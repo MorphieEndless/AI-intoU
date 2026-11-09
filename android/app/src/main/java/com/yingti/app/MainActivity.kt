@@ -306,7 +306,11 @@ class MainActivity : ComponentActivity() {
                             }
                             AppScreen.LOGS -> {
                                 val history by app.history.state.collectAsStateWithLifecycle()
-                                ActivityScreen(history)
+                                ActivityScreen(
+                                    history,
+                                    onRecordingChange = app.history::setRecording,
+                                    onClearEvents = app.history::clearEvents,
+                                )
                             }
                             AppScreen.SETTINGS -> {
                                 val lastMessage = bridge.lastMessage

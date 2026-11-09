@@ -12,6 +12,37 @@ import java.io.File
 import java.time.LocalDate
 import java.util.UUID
 
+/** ActivityHistory 的 JSON 编解码。pending 只活在内存里，不落盘。 */
+internal object ActivityCodec {
+    fun encode(history: ActivityHistory): String = JSONObject().apply {
+        put("version", 1)
+        put("recording", history.recording)
+        put("events", JSONArray().apply { history.events.forEach { e ->
+            put(JSONObject().put("id", e.id).put("time", e.time).put("source", e.source.name)
+                .put("action", e.action).put("status", e.status.name).put("counted", e.counted))
+        } })
+        put("days", JSONObject(history.days))
+    }.toString()
+
+    fun decode(text: String, today: LocalDate = LocalDate.now()): ActivityHistory {
+        val json = JSONObject(text)
+        val entries = json.getJSONArray("events")
+        val events = (0 until minOf(entries.length(), 500)).map { index ->
+            val e = entries.getJSONObject(index)
+            OperationEvent(e.getString("id"), e.getLong("time"), OperationSource.valueOf(e.getString("source")),
+                e.getString("action"), OperationStatus.valueOf(e.getString("status")), e.optBoolean("counted"))
+        }
+        val days = json.getJSONObject("days")
+        return ActivityHistory(
+            events = events,
+            days = days.keys().asSequence().associateWith { days.getInt(it) }
+                .filterKeys { it >= today.minusDays(365).toString() && it <= today.toString() },
+            // v0.19 及更早的文件没有这个字段，按「记录中」处理。
+            recording = json.optBoolean("recording", true),
+        )
+    }
+}
+
 /** App-private, atomic local journal. No credentials, network payloads or cloud upload. */
 class ActivityStore(context: Context) {
     private val file = AtomicFile(File(context.filesDir, "activity-history.json"))
@@ -22,7 +53,7 @@ class ActivityStore(context: Context) {
 
     init {
         scope.launch {
-            mutable.value = try { decode(file.openRead().bufferedReader().use { it.readText() }).recover() }
+            mutable.value = try { ActivityCodec.decode(file.openRead().bufferedReader().use { it.readText() }).recover() }
             catch (_: java.io.FileNotFoundException) { ActivityHistory() }
             catch (_: Exception) { ActivityHistory(storageError = true) }
             for (change in changes) {
@@ -39,7 +70,7 @@ class ActivityStore(context: Context) {
                 try {
                     val stream = file.startWrite()
                     try {
-                        stream.write(encode(next).toByteArray(Charsets.UTF_8))
+                        stream.write(ActivityCodec.encode(next).toByteArray(Charsets.UTF_8))
                         file.finishWrite(stream)
                     } catch (e: Exception) { file.failWrite(stream); throw e }
                     mutable.value = next.copy(storageError = false)
@@ -56,28 +87,7 @@ class ActivityStore(context: Context) {
         val day = LocalDate.now()
         changes.trySend { it.update(id, status, usage, day) }
     }
-    fun clear() { changes.trySend { ActivityHistory() } }
-
-    private fun encode(history: ActivityHistory): String = JSONObject().apply {
-        put("version", 1)
-        put("events", JSONArray().apply { history.events.forEach { e ->
-            put(JSONObject().put("id", e.id).put("time", e.time).put("source", e.source.name)
-                .put("action", e.action).put("status", e.status.name).put("counted", e.counted))
-        } })
-        put("days", JSONObject(history.days))
-    }.toString()
-
-    private fun decode(text: String): ActivityHistory {
-        val json = JSONObject(text)
-        val entries = json.getJSONArray("events")
-        val events = (0 until minOf(entries.length(), 500)).map { index ->
-            val e = entries.getJSONObject(index)
-            OperationEvent(e.getString("id"), e.getLong("time"), OperationSource.valueOf(e.getString("source")),
-                e.getString("action"), OperationStatus.valueOf(e.getString("status")), e.optBoolean("counted"))
-        }
-        val days = json.getJSONObject("days")
-        val today = LocalDate.now()
-        return ActivityHistory(events, days.keys().asSequence().associateWith { days.getInt(it) }
-            .filterKeys { it >= today.minusDays(365).toString() && it <= today.toString() })
-    }
+    fun setRecording(enabled: Boolean) { changes.trySend { it.copy(recording = enabled) } }
+    fun clearEvents() { changes.trySend { it.clearEvents() } }
+    fun clear() { changes.trySend { it.clearAll() } }
 }

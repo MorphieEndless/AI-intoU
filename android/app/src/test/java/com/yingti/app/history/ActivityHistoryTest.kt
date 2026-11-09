@@ -42,6 +42,31 @@ class ActivityHistoryTest {
         assertEquals(OperationStatus.INTERRUPTED, h.events.first().status)
         assertEquals(1, h.days[today.toString()])
     }
+    @Test fun recordingOffSkipsEntriesButStillCountsUsage() {
+        val h = ActivityHistory(recording = false)
+            .add(OperationEvent("one", 1L, OperationSource.AI, "自定义波形"))
+            .update("one", OperationStatus.RUNNING, true, today)
+        assertTrue(h.events.isEmpty())
+        assertEquals(1, h.days[today.toString()])
+    }
+    @Test fun clearEventsKeepsHeatmapAndInFlightCount() {
+        val h = history().clearEvents()
+        assertTrue(h.events.isEmpty())
+        val updated = h.update("one", OperationStatus.RUNNING, true, today)
+        assertEquals(1, updated.days[today.toString()])
+        assertTrue(updated.events.isEmpty())
+    }
+    @Test fun clearAllKeepsRecordingPreference() {
+        val h = history().copy(recording = false, days = mapOf(today.toString() to 3)).clearAll()
+        assertFalse(h.recording)
+        assertTrue(h.events.isEmpty())
+        assertTrue(h.days.isEmpty())
+    }
+    @Test fun terminalStatusDropsPending() {
+        val h = history().update("one", OperationStatus.DONE, false, today)
+            .update("one", OperationStatus.RUNNING, true, today)
+        assertTrue(h.days.isEmpty())
+    }
     @Test fun oneYearRetentionAndClearDoNotInventEvents() {
         val h = history().copy(days = mapOf(today.minusDays(366).toString() to 8))
             .update("one", OperationStatus.SENT, true, today)
