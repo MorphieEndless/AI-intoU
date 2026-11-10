@@ -161,6 +161,8 @@ git hash-object <file> ...     # 推送前
 - **生产与仓库不同步**：本仓库的 `main` 不保证等于任何人的线上部署（线上是独立 checkout）。
   上面那个 Dockerfile 问题就是这样藏了很久。任何"线上是怎么跑的"结论都必须实地确认。
 - **发版只走 tag**：推送 `v*` tag 触发 `release.yml`，构建签名包并发布为正式 Release；
+  **必须先写并合并 `docs/release-notes/vX.Y.Z.md`（正文即 Release 说明），再打 tag**——
+  工作流直接把该文件复制为 Release 正文，tag 后再补文档就只能手动改 Release 或 `workflow_dispatch` 重跑；
   `build-apk.yml` 不再发布任何预发布，构建产物只进 Actions artifact。
 - **更新说明写法**：每个版本的 Release 正文按 `AGENTS.md` §5 分「客户端 / 服务端」两部分，
   模板与文件命名规则见 `docs/release-notes/README.md`。
